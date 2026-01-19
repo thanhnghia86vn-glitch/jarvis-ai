@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S COMMAND CENTER</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+        .jarvis-circle {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: radial-gradient(circle, #3b82f6 0%, #0f172a 70%);
+            box-shadow: 0 0 20px #3b82f6;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
+        .message-box { max-height: 60vh; overflow-y: auto; scrollbar-width: thin; }
+        .user-msg { text-align: right; margin: 10px 0; }
+        .user-msg span { background: #1e293b; padding: 10px 15px; border-radius: 15px 0 15px 15px; border: 1px solid #334155; }
+        .ai-msg { text-align: left; margin: 10px 0; }
+        .ai-msg span { background: #1e3a8a; padding: 10px 15px; border-radius: 0 15px 15px 15px; border: 1px solid #3b82f6; display: inline-block; }
+        .ai-img { max-width: 100%; border-radius: 10px; margin-top: 10px; border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
+        .mic-active { background-color: #ef4444 !important; animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+    </style>
+</head>
+<body class="h-screen flex flex-col items-center justify-center relative overflow-hidden">
+
+    <div class="absolute top-5 left-5 flex items-center gap-3">
+        <div class="jarvis-circle"></div>
+        <div>
+            <h1 class="text-2xl font-bold text-blue-400 tracking-widest">J.A.R.V.I.S</h1>
+            <p class="text-xs text-gray-400">NEURAL INTERFACE V3.0</p>
+        </div>
+    </div>
+
+    <div id="connection-status" class="absolute top-5 right-5 text-xs text-red-500 font-mono">OFFLINE</div>
+
+    <div class="w-full max-w-4xl p-4 flex-1 flex flex-col justify-end">
+        <div id="chat-container" class="message-box w-full mb-4 pr-2">
+            <div class="ai-msg"><span>Chào CEO. Tôi đang trực tuyến. Ngài cần hỗ trợ gì?</span></div>
+        </div>
+
+        <div id="visualizer" class="h-12 w-full flex items-center justify-center gap-1 mb-4 opacity-0 transition-opacity">
+            <div class="w-1 h-3 bg-blue-500 animate-bounce"></div>
+            <div class="w-1 h-5 bg-blue-400 animate-bounce" style="animation-delay: 0.1s"></div>
+            <div class="w-1 h-8 bg-blue-300 animate-bounce" style="animation-delay: 0.2s"></div>
+            <div class="w-1 h-5 bg-blue-400 animate-bounce" style="animation-delay: 0.3s"></div>
+            <div class="w-1 h-3 bg-blue-500 animate-bounce" style="animation-delay: 0.4s"></div>
+        </div>
+    </div>
+
+    <div class="w-full max-w-2xl p-6 bg-slate-800/50 rounded-t-3xl backdrop-blur-md border-t border-slate-700 flex items-center gap-4">
+        <button id="mic-btn" class="w-16 h-16 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center transition-all text-2xl text-white shadow-lg">
+            <i class="fas fa-microphone"></i>
+        </button>
+        <input type="text" id="text-input" placeholder="Nhập lệnh hoặc bấm mic..." class="flex-1 bg-slate-900 border border-slate-700 rounded-full px-6 py-3 text-white focus:outline-none focus:border-blue-500 transition-all">
+        <button id="send-btn" class="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white">
+            <i class="fas fa-paper-plane"></i>
+        </button>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://" + window.location.host + "/ws/nexus");
+        const chatContainer = document.getElementById('chat-container');
+        const micBtn = document.getElementById('mic-btn');
+        const visualizer = document.getElementById('visualizer');
+        const statusDiv = document.getElementById('connection-status');
+        const textInput = document.getElementById('text-input');
+
+        // --- 1. WEBSOCKET HANDLER ---
+        ws.onopen = () => {
+            statusDiv.innerText = "SYSTEM ONLINE";
+            statusDiv.classList.replace("text-red-500", "text-green-500");
+        };
+
+        ws.onmessage = async (event) => {
+            const msg = event.data;
+            visualizer.classList.remove('opacity-0'); // Hiện sóng âm
+            
+            // Xử lý hiển thị
+            addMessage("AI", msg);
+
+            // Xử lý giọng nói (TTS từ Server)
+            playServerAudio(msg);
+
+            // Tắt sóng âm sau khi nói xong (ước lượng)
+            setTimeout(() => visualizer.classList.add('opacity-0'), msg.length * 100 + 2000);
+        };
+
+        ws.onclose = () => {
+            statusDiv.innerText = "DISCONNECTED";
+            statusDiv.classList.replace("text-green-500", "text-red-500");
+        };
+
+        // --- 2. VOICE RECOGNITION (Web Speech API) ---
+        // Dùng sẵn của trình duyệt Chrome/Edge, không cần cài gì thêm
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new Recognition();
+        recognition.lang = 'vi-VN';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        let isListening = false;
+
+        micBtn.onclick = () => {
+            if (!isListening) {
+                recognition.start();
+            } else {
+                recognition.stop();
+            }
+        };
+
+        recognition.onstart = () => {
+            isListening = true;
+            micBtn.classList.add('mic-active');
+            visualizer.classList.remove('opacity-0');
+            textInput.placeholder = "Đang lắng nghe...";
+        };
+
+        recognition.onend = () => {
+            isListening = false;
+            micBtn.classList.remove('mic-active');
+            visualizer.classList.add('opacity-0');
+            textInput.placeholder = "Nhập lệnh hoặc bấm mic...";
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            addMessage("USER", transcript);
+            ws.send(transcript); // Gửi lên Server
+        };
+
+        // --- 3. HELPER FUNCTIONS ---
+        
+        function addMessage(sender, text) {
+            const div = document.createElement('div');
+            div.className = sender === "USER" ? "user-msg" : "ai-msg";
+            
+            // Kiểm tra xem có Link Ảnh không?
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const hasImage = text.match(urlRegex);
+
+            let contentHtml = `<span>${text}</span>`;
+
+            // Nếu là AI và có link ảnh -> Hiển thị ảnh luôn
+            if (sender === "AI" && hasImage) {
+                // Lọc lấy URL ảnh
+                const imgUrl = hasImage[0]; 
+                // Nếu link là ảnh (dalle/png/jpg)
+                if (imgUrl.includes("oaidalle") || imgUrl.includes("png") || imgUrl.includes("jpg")) {
+                    contentHtml += `<br><img src="${imgUrl}" class="ai-img" alt="Generated Image" onclick="window.open('${imgUrl}')">`;
+                }
+            }
+
+            div.innerHTML = contentHtml;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function playServerAudio(text) {
+            try {
+                // Gọi API TTS của Server mình
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ text: text })
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    audio.play();
+                }
+            } catch (e) {
+                console.error("Lỗi đọc giọng nói:", e);
+            }
+        }
+
+        // Gửi bằng phím Enter
+        document.getElementById('send-btn').onclick = () => {
+            const text = textInput.value;
+            if(text) {
+                addMessage("USER", text);
+                ws.send(text);
+                textInput.value = "";
+            }
+        }
+        textInput.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") document.getElementById('send-btn').click();
+        });
+
+    </script>
+</body>
+</html>

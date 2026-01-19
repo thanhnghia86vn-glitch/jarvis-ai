@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S - MISSION CONTROL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #000000; color: #00f0ff; font-family: 'Courier New', monospace; overflow: hidden; }
+        
+        /* Hiệu ứng Neon */
+        .neon-border { border: 1px solid #00f0ff; box-shadow: 0 0 10px rgba(0, 240, 255, 0.3); }
+        .neon-text { text-shadow: 0 0 5px #00f0ff; }
+        
+        /* Trạng thái Agent */
+        .agent-card { opacity: 0.3; transition: all 0.3s; border: 1px solid #333; }
+        .agent-active { opacity: 1; border-color: #00f0ff; box-shadow: 0 0 15px #00f0ff; background: rgba(0, 240, 255, 0.1); transform: scale(1.05); }
+        
+        /* Khung Chat */
+        .chat-box { height: 60vh; overflow-y: auto; background: rgba(10, 10, 10, 0.9); background-image: radial-gradient(#111 1px, transparent 1px); background-size: 20px 20px; }
+        .msg-user { text-align: right; color: #fff; margin: 10px; }
+        .msg-ai { text-align: left; color: #00f0ff; margin: 10px; }
+        
+        /* Ảnh vẽ ra */
+        .generated-image { border: 2px solid #00f0ff; border-radius: 8px; max-width: 60%; margin-top: 10px; box-shadow: 0 0 20px rgba(0, 240, 255, 0.5); cursor: pointer; }
+        
+        /* Nút Mic */
+        .mic-btn { width: 60px; height: 60px; border-radius: 50%; background: #111; border: 2px solid #333; color: #555; cursor: pointer; transition: 0.3s; }
+        .mic-active { border-color: #ff0055; color: #ff0055; box-shadow: 0 0 20px #ff0055; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body class="flex flex-col h-screen p-4 bg-black">
+
+    <div class="flex justify-between items-center mb-4 p-4 neon-border rounded bg-gray-900">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-full bg-blue-900 flex items-center justify-center neon-border">
+                <i class="fas fa-brain text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold tracking-widest">J.A.R.V.I.S</h1>
+                <p class="text-xs text-gray-400">MULTI-AGENT SYSTEM ONLINE</p>
+            </div>
+        </div>
+
+        <div class="flex gap-4">
+            <div id="agent-supervisor" class="agent-card p-2 rounded flex flex-col items-center w-24">
+                <i class="fas fa-user-tie mb-1"></i> <span class="text-xs">Điều phối</span>
+            </div>
+            <div id="agent-coder" class="agent-card p-2 rounded flex flex-col items-center w-24">
+                <i class="fas fa-code mb-1"></i> <span class="text-xs">Lập trình</span>
+            </div>
+            <div id="agent-designer" class="agent-card p-2 rounded flex flex-col items-center w-24">
+                <i class="fas fa-paint-brush mb-1"></i> <span class="text-xs">Sáng tạo</span>
+            </div>
+            <div id="agent-researcher" class="agent-card p-2 rounded flex flex-col items-center w-24">
+                <i class="fas fa-search mb-1"></i> <span class="text-xs">Nghiên cứu</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex-1 flex gap-4 overflow-hidden">
+        <div class="flex-1 flex flex-col neon-border rounded p-4 relative">
+            <div class="absolute top-2 right-2 text-xs text-gray-500">TERMINAL OUTPUT</div>
+            <div id="chat-display" class="chat-box flex-1 mb-4 p-4 rounded custom-scrollbar">
+                <div class="msg-ai">SYSTEM: Đang chờ chỉ thị từ CEO...</div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <button id="mic-btn" class="mic-btn flex items-center justify-center">
+                    <i class="fas fa-microphone text-2xl"></i>
+                </button>
+                <input type="text" id="cmd-input" class="flex-1 bg-gray-900 border border-gray-700 text-white p-4 rounded focus:outline-none focus:border-blue-500" placeholder="Nhập lệnh hoặc bấm Mic nói: 'Vẽ cho tôi...'">
+                <button id="send-btn" class="p-4 bg-blue-600 hover:bg-blue-500 rounded text-white font-bold px-8">GỬI</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://" + window.location.host + "/ws/nexus");
+        const chatDisplay = document.getElementById('chat-display');
+        const micBtn = document.getElementById('mic-btn');
+        const agents = {
+            'Supervisor': document.getElementById('agent-supervisor'),
+            'Coder': document.getElementById('agent-coder'),
+            'Designer': document.getElementById('agent-designer'),
+            'Researcher': document.getElementById('agent-researcher'),
+            'J.A.R.V.I.S': document.getElementById('agent-supervisor')
+        };
+
+        // --- 1. XỬ LÝ WEBSOCKET ---
+        ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data); // Nhận JSON từ Server
+            const sender = data.sender || "System";
+            const content = data.content;
+            
+            // Highlight Agent đang làm việc
+            highlightAgent(data.agent);
+
+            // Hiển thị tin nhắn
+            addMessage("AI", content, sender);
+
+            // Đọc giọng nói (TTS)
+            playAudio(content);
+        };
+
+        // --- 2. HÀM HIỂN THỊ TIN NHẮN & ẢNH ---
+        function addMessage(type, text, senderName) {
+            const div = document.createElement('div');
+            div.className = type === "USER" ? "msg-user" : "msg-ai";
+            
+            let html = `<strong>[${senderName}]:</strong> `;
+            
+            // Xử lý link ảnh (Nếu có)
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const hasImage = text.match(urlRegex);
+
+            if (hasImage && (text.includes("oaidalle") || text.includes("png") || text.includes("jpg"))) {
+                // Chỉ lấy text mô tả, ẩn link đi cho gọn
+                const cleanText = text.split("http")[0]; 
+                html += cleanText + `<br><img src="${hasImage[0]}" class="generated-image" onclick="window.open('${hasImage[0]}')">`;
+            } else {
+                html += text;
+            }
+
+            div.innerHTML = html;
+            chatDisplay.appendChild(div);
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+
+        // --- 3. HIỆU ỨNG AGENT ---
+        function highlightAgent(agentName) {
+            // Reset all
+            Object.values(agents).forEach(el => el.classList.remove('agent-active'));
+            // Active current
+            if (agents[agentName]) {
+                agents[agentName].classList.add('agent-active');
+            } else {
+                agents['Supervisor'].classList.add('agent-active');
+            }
+        }
+
+        // --- 4. GIỌNG NÓI (TTS) ---
+        async function playAudio(text) {
+            // Chỉ đọc text, không đọc link ảnh
+            const cleanText = text.split("http")[0];
+            try {
+                const res = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({text: cleanText})
+                });
+                if(res.ok) {
+                    const blob = await res.blob();
+                    const audio = new Audio(URL.createObjectURL(blob));
+                    audio.play();
+                }
+            } catch(e) {}
+        }
+
+        // --- 5. MICROPHONE (Speech-to-Text) ---
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new Recognition();
+        recognition.lang = 'vi-VN';
+        
+        micBtn.onclick = () => { recognition.start(); };
+        recognition.onstart = () => { micBtn.classList.add('mic-active'); };
+        recognition.onend = () => { micBtn.classList.remove('mic-active'); };
+        
+        recognition.onresult = (e) => {
+            const transcript = e.results[0][0].transcript;
+            sendMessage(transcript);
+        };
+
+        // Gửi tin nhắn
+        function sendMessage(text) {
+            if(!text) return;
+            addMessage("USER", text, "CEO");
+            ws.send(text); // Gửi text thô lên server
+            document.getElementById('cmd-input').value = "";
+        }
+
+        document.getElementById('send-btn').onclick = () => sendMessage(document.getElementById('cmd-input').value);
+        document.getElementById('cmd-input').addEventListener("keypress", (e) => { if(e.key==="Enter") sendMessage(e.target.value); });
+
+    </script>
+</body>
+</html>

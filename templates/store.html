@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Corporation - Giải pháp Công nghệ Tương lai</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #0f172a; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
+    </style>
+</head>
+<body class="text-slate-200 font-sans">
+
+    <nav class="p-6 flex justify-between items-center glass sticky top-0 z-50">
+        <div class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+            <i class="fas fa-robot mr-2"></i>AI CORP
+        </div>
+        <div class="space-x-8 hidden md:flex">
+            <a href="#" class="hover:text-blue-400 transition">Sản phẩm</a>
+            <a href="#" class="hover:text-blue-400 transition">Giải pháp</a>
+            <a href="#" class="hover:text-blue-400 transition">Liên hệ</a>
+        </div>
+        <button class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-full font-medium transition shadow-lg shadow-blue-900/20">
+            Dùng thử miễn phí
+        </button>
+    </nav>
+
+    <header class="py-20 text-center">
+        <h1 class="text-5xl md:text-7xl font-extrabold mb-6">Tự động hóa doanh nghiệp <br> <span class="text-blue-500">bằng Trí tuệ nhân tạo</span></h1>
+        <p class="text-slate-400 text-xl max-w-2xl mx-auto">Chúng tôi cung cấp các công cụ AI mạnh mẽ giúp tối ưu quy trình làm việc và tăng gấp đôi hiệu suất kinh doanh của bạn.</p>
+    </header>
+
+    <section class="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div class="glass p-8 rounded-3xl hover:scale-105 transition transform duration-300">
+            <h3 class="text-xl font-bold mb-4">AI Task Manager</h3>
+            <div class="text-4xl font-bold mb-6">$49<span class="text-lg text-slate-500">/năm</span></div>
+            <ul class="space-y-4 mb-8 text-slate-400">
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Tự động lập lịch bằng AI</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Giao diện kéo thả mượt mà</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Báo cáo tiến độ Real-time</li>
+            </ul>
+            <button onclick="buyProduct(1)" class="w-full py-3 rounded-xl border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition">Mua ngay</button>
+        </div>
+
+        <div class="glass p-8 rounded-3xl border-2 border-blue-500 relative bg-blue-900/10 hover:scale-105 transition transform duration-300">
+            <span class="absolute -top-4 left-1/2 -translate-x-1/2 bg-blue-500 text-white px-4 py-1 rounded-full text-sm">PHỔ BIẾN NHẤT</span>
+            <h3 class="text-xl font-bold mb-4">SaaS Landing AI</h3>
+            <div class="text-4xl font-bold mb-6">$99<span class="text-lg text-slate-500">/gói</span></div>
+            <ul class="space-y-4 mb-8 text-slate-400">
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Thiết kế Web trong 24h</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Tối ưu SEO tự động</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Hosting miễn phí 1 năm</li>
+            </ul>
+            <button onclick="buyProduct(2)" class="w-full py-3 rounded-xl bg-blue-500 text-white hover:bg-blue-600 transition shadow-lg shadow-blue-500/50">Mua ngay</button>
+        </div>
+
+        <div class="glass p-8 rounded-3xl hover:scale-105 transition transform duration-300">
+            <h3 class="text-xl font-bold mb-4">AI Content Pack</h3>
+            <div class="text-4xl font-bold mb-6">$19<span class="text-lg text-slate-500">/tháng</span></div>
+            <ul class="space-y-4 mb-8 text-slate-400">
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> 50 bài viết chuẩn Marketing</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Hỗ trợ đa ngôn ngữ</li>
+                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Tự động tạo ảnh minh họa</li>
+            </ul>
+            <button onclick="buyProduct(3)" class="w-full py-3 rounded-xl border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition">Mua ngay</button>
+        </div>
+    </section>
+
+    <div id="chat-box" class="fixed bottom-6 right-6 w-80 md:w-96 glass rounded-2xl shadow-2xl overflow-hidden hidden">
+        <div class="bg-blue-600 p-4 flex justify-between items-center">
+            <span class="font-bold"><i class="fas fa-robot mr-2"></i>Trợ lý ảo Anna</span>
+            <button onclick="toggleChat()"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="chat-history" class="h-80 overflow-y-auto p-4 space-y-4 text-sm bg-slate-900/50">
+            <div class="bg-slate-800 p-3 rounded-r-lg rounded-tl-lg max-w-[80%]">Chào bạn! Tôi là Anna, tôi có thể giúp gì cho bạn?</div>
+        </div>
+        <div class="p-3 border-t border-slate-700 flex">
+            <input id="chat-input" type="text" placeholder="Hỏi Anna về sản phẩm..." class="bg-transparent flex-1 outline-none text-sm p-2">
+            <button onclick="sendMessage()" class="text-blue-500 p-2"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <button onclick="toggleChat()" class="fixed bottom-6 right-6 bg-blue-600 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-110 transition active:scale-95">
+        <i class="fas fa-comment-dots"></i>
+    </button>
+
+    <script>
+        function toggleChat() {
+            document.getElementById('chat-box').classList.toggle('hidden');
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const history = document.getElementById('chat-history');
+            const msg = input.value;
+            if(!msg) return;
+
+            history.innerHTML += `<div class="bg-blue-600/20 p-3 rounded-l-lg rounded-tr-lg max-w-[80%] ml-auto">${msg}</div>`;
+            input.value = '';
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: msg})
+                });
+                const data = await res.json();
+                history.innerHTML += `<div class="bg-slate-800 p-3 rounded-r-lg rounded-tl-lg max-w-[80%]">${data.reply}</div>`;
+                history.scrollTop = history.scrollHeight;
+            } catch (e) {
+                console.error("Lỗi chat:", e);
+            }
+        }
+
+        async function buyProduct(id) {
+            if(!confirm("Bạn xác nhận muốn mua gói sản phẩm này?")) return;
+            try {
+                const res = await fetch('/api/buy', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({product_id: id})
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    alert(`✅ MUA THÀNH CÔNG!\nMã bản quyền của bạn: ${data.license_key}\nHãy lưu lại mã này để kích hoạt.`);
+                }
+            } catch (e) {
+                alert("Lỗi kết nối thanh toán.");
+            }
+        }
+    </script>
+</body>
+</html>
