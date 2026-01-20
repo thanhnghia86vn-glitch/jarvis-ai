@@ -1,5 +1,6 @@
 import glob
 import os
+import pandas as pd
 import sqlite3
 import uuid
 import time
@@ -19,7 +20,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # --- CÀI ĐẶT THƯ VIỆN: pip install fastapi uvicorn python-multipart jinja2 aiofiles ---
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Request, status, WebSocket, WebSocketDisconnect, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.concurrency import run_in_threadpool
@@ -81,6 +82,46 @@ except ImportError:
     logger.warning("⚠️ Voice Engine not found.")
     client = None
 
+CURRICULUM = {
+    "[FINANCE]": [
+        "Phân tích xu hướng giá vàng SJC và thế giới hôm nay",
+        "Dự báo tỷ giá USD/VND tuần này",
+        "Biến động thị trường Crypto (Bitcoin/ETH) 24h qua",
+        "Chỉ số VN-Index và tác động vĩ mô"
+    ],
+    "[CODER]": [
+        "Top Python libraries for AI Agents ",
+        "FastAPI advanced patterns and performance tuning",
+        "LangChain vs LangGraph architecture comparison",
+        "Optimizing Docker containers for Python apps"
+    ],
+    "[MARKETING]": [
+        "Xu hướng TikTok viral tại Việt Nam tuần này",
+        "Chiến lược SEO mới nhất của Google Update",
+        "Content marketing trends for Tech products 2026",
+        "Phân tích quảng cáo Facebook hiệu quả ngành công nghệ"
+    ],
+    "[LEGAL]": [
+        "Luật Giao dịch điện tử mới nhất tại Việt Nam",
+        "Quy định về bảo vệ dữ liệu cá nhân (Nghị định 13)",
+        "Bản quyền trong kỷ nguyên AI (Intellectual Property & AI)"
+    ],
+    "[HARDWARE]": [
+        "ESP32-S3 pinout and datasheet updates",
+        "Các loại cảm biến IoT giá rẻ mới nhất trên thị trường",
+        "Kỹ thuật thiết kế mạch PCB chống nhiễu (Anti-interference)"
+    ],
+    "[ARTIST]": [
+        "Phong cách vẽ Digital Art đương đại",
+        "Xu hướng màu sắc (Color Trends) năm 2026",
+        "Kỹ thuật Prompting cho DALL-E 3 và Midjourney"
+    ],
+    "[IOT]": [
+        "Giao thức MQTT và bảo mật thiết bị IoT",
+        "Nhà thông minh (Smart Home) integration trends",
+        "Zigbee vs WiFi vs LoRaWAN comparison"
+    ]
+}
 
 # ==========================================
 # 2. CLASS QUẢN LÝ KẾT NỐI (WEBSOCKET)
@@ -109,14 +150,40 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+class DatabaseManager:
+    """Quản lý kết nối Database cho Server"""
+    def __init__(self, db_path=DB_PATH):
+        self.db_path = db_path
+
+    def get_connection(self):
+        """Tạo kết nối cho lệnh 'with'"""
+        return sqlite3.connect(self.db_path, check_same_thread=False)
+
+# Khởi tạo biến toàn cục (Sửa lỗi gạch chân chữ 'db_manager')
+db_manager = DatabaseManager()
 # ==========================================
 # 3. KHỞI TẠO APP & DATABASE
 # ==========================================
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
+    
+    # 1. Các bảng cũ (Giữ nguyên)
     conn.execute("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)")
     conn.execute("CREATE TABLE IF NOT EXISTS finance_logs (id INTEGER PRIMARY KEY, type TEXT, amount REAL)")
+    
+    # 2. --- BẢNG MỚI: TRẠNG THÁI NHÂN SỰ AI (AGENT STATUS) ---
+    # role_tag: Mã định danh (VD: [ARTIST], [CODER]...) -> Làm khóa chính (Primary Key)
+    # xp: Điểm kinh nghiệm tích lũy (Mặc định là 0)
+    # current_topic: Chủ đề vừa học gần nhất
+    # last_updated: Thời gian cập nhật
+    conn.execute('''CREATE TABLE IF NOT EXISTS agent_status 
+                    (role_tag TEXT PRIMARY KEY, 
+                     xp INTEGER DEFAULT 0, 
+                     current_topic TEXT, 
+                     last_updated DATETIME)''')
+    
+    conn.commit() # Lưu các thay đổi cấu trúc bảng
     conn.close()
 
 async def morning_briefing_job():
@@ -173,6 +240,8 @@ async def morning_briefing_job():
         await f.write(f"# 🌅 BẢN TIN SÁNG {today}\n\n{final_report}")
         
     print(colored(f"✅ [DONE] Đã hoàn thành tự học và lưu báo cáo tại: {report_path}", "green"))
+# --- API MỚI: CHO PHÉP TẢI DỮ LIỆU VỀ MÁY ---
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -260,7 +329,8 @@ async def heavy_project_executor(project_request: str, thread_id: str):
     print(colored(f"🏗️ [HEAVY PROJECT] Bắt đầu: {project_request}", "magenta", attrs=["bold"]))
     
     log_file = f"projects/{thread_id}_log.txt"
-    
+    blueprint_path = f"projects/{thread_id}_BLUEPRINT.md"
+
     try:
         if not LLM_SUPERVISOR:
              raise Exception("LLM_SUPERVISOR chưa được khởi tạo. Kiểm tra lại main.py")
@@ -321,6 +391,14 @@ async def start_heavy_project(request: ChatRequest, background_tasks: Background
         "message": "Đã tiếp nhận dự án ERP. Hệ thống sẽ chạy ngầm.",
         "log_path": f"projects/{pid}_log.txt"
     }
+
+@app.get("/api/sync/download_db")
+async def download_database():
+    db_path = "ai_corp_projects.db" # Tên file Database của ngài
+    if os.path.exists(db_path):
+        # Trả về file cho Client tải
+        return FileResponse(path=db_path, filename="ai_corp_projects_cloud.db", media_type='application/octet-stream')
+    return {"error": "Chưa có dữ liệu nào được tạo ra."}
 
 # ==========================================
 # 🚀 SYSTEM ROUTES
@@ -620,9 +698,113 @@ async def voice_chat(file: UploadFile = File(...), api_key: str = Depends(verify
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+# Thêm hàm hỗ trợ tính Level từ XP
+def calculate_level(xp: int) -> int:
+    # Công thức đơn giản: Cứ 100 XP là lên 1 Level. Level khởi đầu là 1.
+    return int(xp / 100) + 1
+
+# Cập nhật hàm đào tạo
+async def specialized_training_job(role_tag: str):
+    print(colored(f"🎓 [TRAINING] Bắt đầu đào tạo chuyên sâu cho {role_tag}...", "cyan"))
+    
+    # 1. Lấy chủ đề (Như cũ)
+    topics = CURRICULUM.get(role_tag, [])
+    if not topics: return
+    current_topic_learned = topics[0] # Lấy chủ đề đầu tiên làm ví dụ
+
+    # ... (Phần code đi search và lưu kiến thức cũ giữ nguyên) ...
+    # Giả sử ngài đã search và có nội dung trong biến 'full_knowledge'
+    
+    # --- ĐOẠN MỚI: CẬP NHẬT TRẠNG THÁI VÀO DB ---
+    try:
+        with db_manager.get_connection() as conn:
+            c = conn.cursor()
+            
+            # a. Lấy XP hiện tại
+            c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,))
+            row = c.fetchone()
+            current_xp = row['xp'] if row else 0
+            
+            # b. Cộng thêm XP (VD: Mỗi lần học xong cộng 50 XP)
+            new_xp = current_xp + 50
+            
+            # c. Lưu vào DB
+            c.execute("""
+                INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated)
+                VALUES (?, ?, ?, ?)
+            """, (role_tag, new_xp, current_topic_learned, datetime.datetime.now()))
+            conn.commit()
+            
+        new_level = calculate_level(new_xp)
+        print(colored(f"✅ [UPGRADE] {role_tag} đã học xong '{current_topic_learned}'. XP: {new_xp} -> Level {new_level}", "green"))
+        
+    except Exception as e:
+        print(colored(f"❌ Lỗi cập nhật trạng thái Agent: {e}", "red"))
+
+# Trong server.py, phần khai báo API
+@app.get("/api/agents/status")
+async def get_agents_status_endpoint():
+    """Trả về danh sách trạng thái của tất cả Agents"""
+    try:
+        with db_manager.get_connection() as conn:
+             # Lấy dữ liệu và tính luôn Level
+            df = pd.read_sql_query("SELECT *, (xp / 100) + 1 as level FROM agent_status", conn)
+            return df.to_dict(orient="records")
+    except Exception as e:
+        return {"error": str(e)}
 # ==========================================
 # ⚡ WEBSOCKET REAL-TIME (THE NEXUS)
 # ==========================================
+async def architect_planner(project_request: str, thread_id: str):
+    """
+    Chỉ lập kế hoạch chi tiết, KHÔNG viết code.
+    Mục tiêu: Để CEO duyệt trước logic.
+    """
+    print(colored(f"📐 [ARCHITECT] Đang phác thảo dự án: {project_request}", "cyan"))
+    
+    # Prompt chuyên dụng cho Kiến trúc sư
+    architect_prompt = (
+        f"Bạn là Chief Software Architect (CSA). Có một yêu cầu dự án ERP: '{project_request}'.\n"
+        "Hãy lập một BẢN THIẾT KẾ KỸ THUẬT (Technical Blueprint) chi tiết gồm:\n"
+        "1. [MODULES]: Danh sách các chức năng chi tiết.\n"
+        "2. [DATABASE]: Sơ đồ bảng (Table Schema) cho SQLite/PostgreSQL.\n"
+        "3. [TECH STACK]: Công nghệ sử dụng (Frontend/Backend/Libs).\n"
+        "4. [FLOW]: Quy trình nghiệp vụ (Ví dụ: Nhập kho -> Cập nhật tồn -> Báo cáo).\n"
+        "5. [FILE STRUCTURE]: Cấu trúc thư mục dự kiến.\n\n"
+        "YÊU CẦU: Trình bày dạng Markdown rõ ràng để CEO duyệt."
+    )
+    
+    # Dùng Supervisor (Gemini 1.5 Pro) vì context window lớn, tư duy tốt
+    plan_res = await run_in_threadpool(lambda: LLM_SUPERVISOR.invoke(architect_prompt))
+    
+    # Lưu bản vẽ ra file để CEO xem
+    plan_path = f"projects/{thread_id}_BLUEPRINT.md"
+    with open(plan_path, "w", encoding="utf-8") as f:
+        f.write(plan_res.content)
+        
+    print(colored(f"✅ [PLAN READY] Bản vẽ đã xong: {plan_path}", "green"))
+    return plan_res.content, plan_path
+
+@app.post("/api/plan_project")
+async def plan_project_endpoint(request: ChatRequest):
+    """
+    Bước 1: CEO yêu cầu lập kế hoạch.
+    """
+    if not AI_AVAILABLE: return {"status": "ERROR", "message": "AI Offline"}
+    
+    pid = request.thread_id or f"proj_{int(time.time())}"
+    
+    # Gọi hàm architect (Chờ kết quả luôn để trả về cho CEO xem ngay)
+    plan_content, plan_path = await architect_planner(request.message, pid)
+    
+    return {
+        "status": "PLAN_CREATED",
+        "project_id": pid,
+        "message": "Đã lập xong bản thiết kế. Vui lòng xem xét.",
+        "blueprint_content": plan_content, # Trả về nội dung để hiện lên Dashboard
+        "blueprint_path": plan_path,
+        "next_action": "Nếu đồng ý, hãy gọi /api/heavy_project với nội dung 'EXECUTE_BLUEPRINT'"
+    }
 
 @app.websocket("/ws/nexus")
 async def websocket_nexus(websocket: WebSocket):
@@ -811,8 +993,13 @@ async def dashboard_page(request: Request):
 # 3. Trang Admin (Quản trị & Nạp kiến thức)
 @app.get("/admin")
 async def admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
+    # Truyền thêm biến api_key sang giao diện HTML
+    return templates.TemplateResponse("admin.html", {
+        "request": request, 
+        "api_key": ADMIN_SECRET # <--- QUAN TRỌNG: Dòng này giúp hiển thị Key
+    })
 # --- ENTRY POINT (CHẠY SERVER) ---
+
 if __name__ == "__main__":
     import uvicorn
     # Sử dụng biến môi trường PORT để tương thích Cloud Run sau này
