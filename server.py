@@ -1,5 +1,6 @@
 import glob
 import os
+
 import pandas as pd
 import sqlite3
 import uuid
@@ -337,12 +338,31 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Cấu hình CORS & Static
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# 1. Cấu hình CORS (Cho phép mọi kết nối)
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=["*"], 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+
+# 2. Thiết lập đường dẫn tĩnh (Auto-Create Folder)
 base_dir = os.path.abspath(os.path.dirname(__file__))
-app.mount("/static", StaticFiles(directory=os.path.join(base_dir, 'static')), name="static")
-templates = Jinja2Templates(directory=os.path.join(base_dir, 'templates'))
-# Cấu hình CORS
+static_dir = os.path.join(base_dir, 'static')
+templates_dir = os.path.join(base_dir, 'templates')
+
+# --- QUAN TRỌNG: Tạo thư mục nếu chưa có (Fix lỗi Render) ---
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+    print(colored("⚠️ Đã tự động tạo thư mục 'static'.", "yellow"))
+
+if not os.path.exists(templates_dir):
+    os.makedirs(templates_dir)
+    print(colored("⚠️ Đã tự động tạo thư mục 'templates'.", "yellow"))
+
+# 3. Mount Static & Templates
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+templates = Jinja2Templates(directory=templates_dir)
 
 # --- DATA MODELS (Pydantic) ---
 class ChatRequest(BaseModel):
@@ -1154,4 +1174,3 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
-
