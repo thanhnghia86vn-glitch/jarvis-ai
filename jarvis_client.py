@@ -13,8 +13,8 @@ from termcolor import colored
 # ==========================================
 # CẤU HÌNH HỆ THỐNG
 # ==========================================
-SERVER_URL = "http://localhost:8080"      # Để gọi API giọng nói
-SERVER_WS_URL = "ws://localhost:8080/ws/nexus" # Để chat nhanh
+SERVER_URL = "https://jarvis-ai-qklx.onrender.com/"      # Để gọi API giọng nói
+SERVER_WS_URL = "wss://jarvis-ai-qklx.onrender.com/ws/nexus" # Để chat nhanh
 EXIT_COMMANDS = ["tắt máy", "ngủ đi", "thoát", "exit", "dừng lại"]
 TEMP_AUDIO_FILE = "temp_reply.mp3"
 
