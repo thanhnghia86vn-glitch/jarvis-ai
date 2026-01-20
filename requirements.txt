@@ -18,7 +18,9 @@ langchain-chroma
 chromadb
 pydantic
 httpx
-
+pandas
+numpy
 openai
 google-generativeai
 anthropic
+
