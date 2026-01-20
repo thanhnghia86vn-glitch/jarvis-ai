@@ -85,53 +85,106 @@ except ImportError:
     client = None
 
 CURRICULUM = {
+    # === NHÓM 1: QUẢN TRỊ & CHIẾN LƯỢC (C-SUITE) ===
+    "[ORCHESTRATOR]": [
+        "Mô hình OKRs vs KPIs trong quản trị doanh nghiệp AI",
+        "Chiến lược quản trị khủng hoảng (Crisis Management) thời gian thực",
+        "Tối ưu hóa quy trình ra quyết định dựa trên dữ liệu (Data-Driven Decision Making)",
+        "Tin tức công nghệ Deep Tech toàn cầu 24h qua"
+    ],
     "[FINANCE]": [
-        "Phân tích xu hướng giá vàng SJC và thế giới hôm nay",
-        "Dự báo tỷ giá USD/VND tuần này",
-        "Biến động thị trường Crypto (Bitcoin/ETH) 24h qua",
-        "Chỉ số VN-Index và tác động vĩ mô"
+        "Các chiến lược Hedging rủi ro tỷ giá hối đoái",
+        "Ứng dụng Blockchain trong quản lý dòng tiền doanh nghiệp (Corporate Treasury)",
+        "Phân tích kỹ thuật nâng cao: Sóng Elliott và Fibonacci trong thị trường vàng/Crypto",
+        "Tối ưu hóa thuế cho doanh nghiệp số (Digital Tax Optimization)"
     ],
+    "[HR_MANAGER]": [
+        "Xây dựng khung năng lực cốt lõi cho nhân sự AI & Blockchain",
+        "Tâm lý học hành vi trong giữ chân nhân tài Gen Z & Alpha",
+        "Tự động hóa quy trình Payroll và C&B bằng Smart Contracts",
+        "Luật lao động quốc tế về làm việc từ xa (Remote Work Compliance)"
+    ],
+
+    # === NHÓM 2: KỸ THUẬT PHẦN MỀM (CORE TECH) ===
     "[CODER]": [
-        "Top Python libraries for AI Agents ",
-        "FastAPI advanced patterns and performance tuning",
-        "LangChain vs LangGraph architecture comparison",
-        "Optimizing Docker containers for Python apps"
+        "Lập trình hiệu năng cao với Rust và Go cho Backend",
+        "Tối ưu hóa truy vấn Database (Indexing, Partitioning, Sharding)",
+        "Event-Driven Architecture với Apache Kafka và RabbitMQ",
+        "WebAssembly (Wasm): Tương lai của ứng dụng Web hiệu năng cao"
     ],
-    "[MARKETING]": [
-        "Xu hướng TikTok viral tại Việt Nam tuần này",
-        "Chiến lược SEO mới nhất của Google Update",
-        "Content marketing trends for Tech products 2026",
-        "Phân tích quảng cáo Facebook hiệu quả ngành công nghệ"
+    "[ARCHITECT]": [
+        "Domain-Driven Design (DDD) trong thiết kế Microservices",
+        "Triển khai Serverless trên quy mô lớn (AWS Lambda/Google Cloud Run)",
+        "Mô hình CQRS và Event Sourcing trong hệ thống phân tán",
+        "Zero Trust Architecture: Kiến trúc bảo mật không tin cậy ai"
     ],
-    "[LEGAL]": [
-        "Luật Giao dịch điện tử mới nhất tại Việt Nam",
-        "Quy định về bảo vệ dữ liệu cá nhân (Nghị định 13)",
-        "Bản quyền trong kỷ nguyên AI (Intellectual Property & AI)"
+    "[SECURITY]": [
+        "Kỹ thuật Reverse Engineering mã độc nâng cao",
+        "Bảo mật API theo chuẩn OWASP Top 10 năm 2026",
+        "Post-Quantum Cryptography: Mã hóa chống máy tính lượng tử",
+        "DevSecOps: Tích hợp bảo mật vào quy trình CI/CD"
     ],
+    "[DATA_ANALYST]": [
+        "Xây dựng RAG (Retrieval-Augmented Generation) cho LLM doanh nghiệp",
+        "Data Lakehouse: Kết hợp sức mạnh của Data Lake và Data Warehouse",
+        "Phân tích dữ liệu thời gian thực (Real-time Analytics) với Apache Flink",
+        "Mô hình dự báo chuỗi thời gian (Time-series Forecasting) bằng Deep Learning"
+    ],
+
+    # === NHÓM 3: PHẦN CỨNG & IOT (HARDWARE) ===
     "[HARDWARE]": [
-        "ESP32-S3 pinout and datasheet updates",
-        "Các loại cảm biến IoT giá rẻ mới nhất trên thị trường",
-        "Kỹ thuật thiết kế mạch PCB chống nhiễu (Anti-interference)"
-    ],
-    "[ARTIST]": [
-        "Phong cách vẽ Digital Art đương đại",
-        "Xu hướng màu sắc (Color Trends) năm 2026",
-        "Kỹ thuật Prompting cho DALL-E 3 và Midjourney"
+        "Thiết kế mạch PCB cao tần (High-speed PCB Design)",
+        "Edge AI: Chạy mô hình AI trực tiếp trên vi điều khiển (TinyML)",
+        "Công nghệ Pin thế hệ mới và quản lý năng lượng (Power Management)",
+        "Lập trình FPGA cho xử lý tín hiệu số"
     ],
     "[IOT]": [
-        "Giao thức MQTT và bảo mật thiết bị IoT",
-        "Nhà thông minh (Smart Home) integration trends",
-        "Zigbee vs WiFi vs LoRaWAN comparison"
+        "Mạng lưới vạn vật (Mesh Networking) với LoRaWAN và Zigbee",
+        "Digital Twins: Bản sao số trong công nghiệp sản xuất",
+        "Giao thức MQTT v5 và tối ưu hóa băng thông cho thiết bị IoT",
+        "Bảo mật thiết bị IoT ở cấp độ phần cứng (Hardware Security Modules)"
     ],
-    "[ORCHESTRATOR]": [
-        "Tin tức công nghệ thế giới 24h qua", "Quản lý dự án Agile hiệu quả"
+
+    # === NHÓM 4: SÁNG TẠO & MARKETING (GROWTH) ===
+    "[MARKETING]": [
+        "Neuromarketing: Ứng dụng khoa học não bộ vào quảng cáo",
+        "Programmatic Advertising: Quảng cáo lập trình hóa tự động",
+        "Chiến lược Growth Hacking dựa trên Phễu AARRR",
+        "Tối ưu hóa tìm kiếm bằng giọng nói (Voice Search SEO)"
+    ],
+    "[ARTIST]": [
+        "Quy trình sản xuất Video Generative AI (Runway Gen-3, Sora)",
+        "Thiết kế trải nghiệm người dùng không gian (Spatial UX cho VR/AR)",
+        "Lý thuyết màu sắc nâng cao và tâm lý học hình ảnh",
+        "Kỹ thuật Prompt Engineering chuyên sâu cho Midjourney v6"
+    ],
+    "[CONTENT_WRITER]": [
+        "Kỹ thuật Storytelling: Cấu trúc hành trình anh hùng trong B2B",
+        "SEO Semantic Search và Topic Clusters (Cụm chủ đề)",
+        "Copywriting thôi miên: Các mẫu câu chốt sale tâm lý học",
+        "Chiến lược nội dung đa kênh (Omnichannel Content Strategy)"
+    ],
+
+    # === NHÓM 5: NGHIỆP VỤ BỔ TRỢ (SUPPORT) ===
+    "[LEGAL]": [
+        "Khung pháp lý về AI và bản quyền tác giả toàn cầu",
+        "Hợp đồng thông minh (Smart Contract) và tính pháp lý",
+        "Tuân thủ GDPR và Nghị định 13 bảo vệ dữ liệu tại Việt Nam",
+        "Giải quyết tranh chấp thương mại điện tử xuyên biên giới"
     ],
     "[RESEARCH]": [
-        "Báo cáo thị trường công nghệ Việt Nam 2026", "Xu hướng tiêu dùng Gen Z"
+        "Xu hướng công nghệ sinh học (Biotech) kết hợp AI",
+        "Vật liệu mới (Graphene, Carbon Nanotubes) trong công nghiệp",
+        "Tác động của 6G lên nền kinh tế số tương lai",
+        "Nghiên cứu hành vi tiêu dùng bền vững (Sustainability)"
+    ],
+    "[SALES]": [
+        "Mô hình bán hàng Challenger Sale (Người thách thức)",
+        "Account-Based Marketing (ABM) cho khách hàng doanh nghiệp lớn",
+        "Kỹ thuật đàm phán cấp cao (High-stakes Negotiation)",
+        "Ứng dụng CRM AI để dự đoán tỷ lệ chốt đơn (Win Rate Prediction)"
     ]
-
 }
-
 # ==========================================
 # 1. DATABASE MANAGER
 # ==========================================
