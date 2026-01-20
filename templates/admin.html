@@ -151,203 +151,75 @@
     </div>
 
     <script>
-        // --- 0. XỬ LÝ API KEY ---
-        function toggleKey() {
-            const input = document.getElementById("apiKeyInput");
-            const icon = document.getElementById("eyeIcon");
-            if (input.type === "password") {
-                input.type = "text";
-                icon.classList.remove("fa-eye");
-                icon.classList.add("fa-eye-slash");
-            } else {
-                input.type = "password";
-                icon.classList.remove("fa-eye-slash");
-                icon.classList.add("fa-eye");
-            }
-        }
+        const API_KEY = "{{ api_key }}"; // Lấy key từ Server gửi sang
 
-        function copyKey() {
-            const input = document.getElementById("apiKeyInput");
-            // Hiển thị tạm thời để copy nếu đang ẩn
-            const originalType = input.type;
-            input.type = "text";
-            input.select();
-            document.execCommand("copy");
-            input.type = originalType; // Trả lại trạng thái cũ
-            
-            // Hiệu ứng thông báo
-            const btn = event.currentTarget;
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-check"></i>';
-            btn.classList.add("bg-green-600");
-            setTimeout(() => {
-                btn.innerHTML = originalHTML;
-                btn.classList.remove("bg-green-600");
-            }, 1500);
-        }
-
-        // --- 1. CLOCK ---
-        setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString('vi-VN', {hour12: false});
-        }, 1000);
-
-        // --- 2. LOAD STATS ---
+        // 1. Hàm tải thống kê tiền tệ
         async function loadStats() {
             try {
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 
-                document.getElementById('stat-revenue').innerText = `$${data.revenue.toLocaleString()}`;
-                document.getElementById('stat-expense').innerText = `$${data.expense.toLocaleString()}`;
-                document.getElementById('stat-profit').innerText = `$${(data.revenue - data.expense).toLocaleString()}`;
-                document.getElementById('stat-products').innerText = data.products;
-            } catch (e) { console.error(e); }
+                // Cập nhật số liệu lên giao diện
+                document.getElementById('revenue-display').innerText = `$${data.revenue || 0}`;
+                document.getElementById('expense-display').innerText = `$${data.expense || 0}`;
+                document.getElementById('products-count').innerText = data.products || 0;
+                document.getElementById('profit-display').innerText = `$${data.balance || 0}`;
+            } catch (e) {
+                console.error("Lỗi tải thống kê:", e);
+            }
         }
 
-        // --- 3. LOAD AGENT STATUS (THẺ BÀI) ---
-        async function loadAgentStatus() {
-            const container = document.getElementById('agent-roster-container');
-            
+        // 2. Hàm tải danh sách Agent (Đội ngũ chuyên gia)
+        async function loadAgents() {
             try {
-                const response = await fetch('/api/agents/status');
-                const agents = await response.json();
+                const res = await fetch('/api/agents/status');
+                const agents = await res.json();
                 
-                container.innerHTML = ''; 
-
+                const container = document.getElementById('agent-list-container'); // Đảm bảo thẻ div chứa list có id này
+                
                 if (agents.length === 0) {
-                    container.innerHTML = '<p class="text-slate-500 col-span-full text-center py-4 bg-slate-800/30 rounded border border-dashed border-slate-700">Chưa có dữ liệu. Hãy chạy quy trình đào tạo trên Dashboard.</p>';
+                    container.innerHTML = '<p class="text-gray-500 italic">Hệ thống đang khởi động đào tạo...</p>';
                     return;
                 }
 
+                let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
                 agents.forEach(agent => {
-                    const progress = agent.xp % 100;
-                    const level = parseInt(agent.level) || 1;
+                    // Tính màu sắc dựa trên Level
+                    const levelColor = agent.level > 5 ? 'text-yellow-400' : 'text-blue-400';
                     
-                    // Card HTML
-                    const html = `
-                        <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-3 hover:border-purple-500 hover:bg-slate-800 hover:shadow-lg hover:shadow-purple-500/20 transition duration-300 group">
-                            <div class="flex justify-between items-start mb-3">
-                                <span class="text-[10px] font-bold text-blue-300 bg-blue-900/40 px-2 py-1 rounded border border-blue-800">
-                                    ${agent.role_tag}
-                                </span>
-                                <div class="text-right">
-                                    <div class="text-yellow-400 font-bold font-mono text-sm">LV.${level}</div>
-                                </div>
-                            </div>
-
-                            <div class="w-full bg-slate-900 rounded-full h-1.5 mb-1 overflow-hidden">
-                                <div class="bg-gradient-to-r from-yellow-500 to-orange-600 h-1.5 rounded-full" 
-                                     style="width: ${progress}%"></div>
-                            </div>
-                            <div class="flex justify-between text-[10px] text-slate-500 mb-3">
-                                <span>EXP</span>
-                                <span>${agent.xp} PTS</span>
-                            </div>
-
-                            <div class="border-t border-slate-700/50 pt-2">
-                                <div class="text-[10px] text-slate-400 uppercase mb-1">Đang nghiên cứu:</div>
-                                <p class="text-xs text-slate-200 line-clamp-2 min-h-[2.5em]" title="${agent.current_topic}">
-                                    ${agent.current_topic || '<span class="italic text-slate-600">Đang chờ lệnh...</span>'}
-                                </p>
-                            </div>
+                    html += `
+                    <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold ${levelColor}">${agent.role_tag}</span>
+                            <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${agent.level}</span>
                         </div>
-                    `;
-                    container.innerHTML += html;
-                });
-
-            } catch (error) {
-                console.error('Lỗi tải Agent:', error);
-                container.innerHTML = '<p class="text-red-400 text-xs col-span-full text-center">Mất kết nối với Server API.</p>';
-            }
-        }
-
-        // --- 4. LOAD PRODUCTS ---
-        async function loadProducts() {
-            try {
-                const res = await fetch('/api/products');
-                const products = await res.json();
-                const tbody = document.getElementById('product-list');
-                tbody.innerHTML = "";
-
-                if(products.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-slate-600 italic">Kho hàng trống</td></tr>';
-                    return;
-                }
-
-                products.forEach(p => {
-                    tbody.innerHTML += `
-                        <tr class="border-b border-slate-700/50 hover:bg-slate-700/30 transition">
-                            <td class="px-4 py-3 font-mono text-blue-400 text-xs">#${p.id}</td>
-                            <td class="px-4 py-3 text-white font-medium">${p.name}</td>
-                            <td class="px-4 py-3 text-green-400 font-bold text-right">$${p.price.toLocaleString()}</td>
-                        </tr>
+                        <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
+                            <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${Math.min(agent.xp % 100, 100)}%"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 truncate">Đang học: ${agent.current_topic || 'Nghỉ ngơi'}</p>
+                        <p class="text-xs text-gray-500 mt-1">XP: ${agent.xp}</p>
+                    </div>
                     `;
                 });
-            } catch (e) { console.error(e); }
-        }
-
-        // --- 5. UPLOAD PDF ---
-        async function uploadPDF() {
-            const fileInput = document.getElementById('pdf-input');
-            const status = document.getElementById('upload-status');
-            
-            if (fileInput.files.length === 0) return alert("Vui lòng chọn file PDF!");
-            
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            
-            status.innerText = "⏳ Đang phân tích & mã hóa dữ liệu...";
-            status.className = "text-xs mt-2 text-yellow-400 animate-pulse";
-
-            try {
-                const res = await fetch('/api/upload_pdf', { method: 'POST', body: formData });
-                const data = await res.json();
+                html += '</div>';
+                container.innerHTML = html;
                 
-                if(data.status === 'success') {
-                    status.innerText = "✅ Hoàn tất! J.A.R.V.I.S đã nạp xong kiến thức.";
-                    status.className = "text-xs mt-2 text-green-400";
-                    fileInput.value = ""; // Reset
-                } else {
-                    status.innerText = "❌ Lỗi: " + data.detail;
-                    status.className = "text-xs mt-2 text-red-400";
-                }
             } catch (e) {
-                status.innerText = "❌ Lỗi kết nối Server";
-                status.className = "text-xs mt-2 text-red-400";
+                console.error("Lỗi tải Agent:", e);
             }
         }
 
-        // --- 6. LEARN TEXT ---
-        async function learnText() {
-            const text = document.getElementById('learn-text').value;
-            const status = document.getElementById('learn-status');
-            const apiKey = document.getElementById('apiKeyInput').value; // Lấy key từ ô input (nếu cần)
+        // 3. Chạy ngay khi mở trang
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            loadAgents();
             
-            if (!text.trim()) return alert("Vui lòng nhập nội dung cần dạy!");
-
-            status.innerText = "⏳ Đang ghi nhớ vào Neural Network...";
-            status.className = "text-xs mt-2 text-yellow-400 animate-pulse";
-            
-            try {
-                const res = await fetch('/api/learn', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'x-api-key': apiKey || 'ai_corp_secret_123'},
-                    body: JSON.stringify({ text: text })
-                });
-                const data = await res.json();
-                status.innerText = "✅ " + data.message;
-                status.className = "text-xs mt-2 text-green-400";
-                document.getElementById('learn-text').value = "";
-            } catch (e) {
-                status.innerText = "❌ Lỗi: " + e;
-            }
-        }
-
-        // --- INIT ---
-        // Chạy ngay khi tải trang
-        loadStats();
-        loadAgentStatus(); 
-        loadProducts();
+            // Tự động cập nhật mỗi 10 giây
+            setInterval(() => {
+                loadStats();
+                loadAgents();
+            }, 10000);
+        });
     </script>
 </body>
 </html>
