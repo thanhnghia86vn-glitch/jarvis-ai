@@ -198,19 +198,33 @@ class DatabaseManager:
         return sqlite3.connect(self.db_path, check_same_thread=False)
     
     def init_db(self):
-        """Khởi tạo cấu trúc bảng"""
+        """Khởi tạo cấu trúc bảng & Dữ liệu mẫu (Seed Data)"""
         with self.get_connection() as conn:
-            # Bảng sản phẩm & tài chính cũ
+            # 1. Tạo bảng
             conn.execute("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)")
             conn.execute("CREATE TABLE IF NOT EXISTS finance_logs (id INTEGER PRIMARY KEY, type TEXT, amount REAL)")
-            
-            # Bảng Agent Status (QUAN TRỌNG CHO ADMIN)
             conn.execute('''CREATE TABLE IF NOT EXISTS agent_status 
                             (role_tag TEXT PRIMARY KEY, 
                              xp INTEGER DEFAULT 0, 
                              current_topic TEXT, 
                              last_updated DATETIME)''')
-            conn.commit()
+            
+            # 2. [MỚI] KIỂM TRA & TẠO DỮ LIỆU MẪU NGAY LẬP TỨC
+            cursor = conn.cursor()
+            count = cursor.execute("SELECT count(*) FROM agent_status").fetchone()[0]
+            
+            if count == 0:
+                print(colored("🌱 DATABASE TRỐNG - ĐANG KHỞI TẠO ĐỘI NGŨ AGENT...", "yellow"))
+                # Lấy danh sách từ CURRICULUM (đảm bảo biến này đã khai báo ở trên)
+                now = datetime.now()
+                for role in CURRICULUM.keys():
+                    cursor.execute("""
+                        INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
+                        VALUES (?, ?, ?, ?)
+                    """, (role, 0, "Đang chờ lệnh (Idle)", now))
+                conn.commit()
+                print(colored("✅ Đã tạo hồ sơ cho 15 chuyên gia AI.", "green"))
+            
         logger.info("✅ DATABASE INITIALIZED")
 
 db_manager = DatabaseManager()
@@ -258,10 +272,20 @@ async def specialized_training_job(role_tag: str):
     topics = CURRICULUM.get(role_tag, [])
     if not topics: return
     
-    # Chọn ngẫu nhiên 1 chủ đề để học cho đỡ tốn tài nguyên
-    current_topic = random.choice(topics)
-    
     try:
+        # 1. [TỐI ƯU] Lấy XP TRƯỚC để tính toán bài cần học
+        current_xp = 0
+        with db_manager.get_connection() as conn:
+            row = conn.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
+            if row: current_xp = row[0]
+
+        # 2. Thuật toán "Smart Cycling": Dùng XP để chọn bài
+        # Mỗi lần học được 50 XP. Ta chia 50 lấy phần nguyên để ra số thứ tự bài.
+        # Dùng toán tử % (chia lấy dư) để khi học hết bài cuối sẽ tự quay lại bài 1.
+        topic_index = int(current_xp / 50) % len(topics)
+        current_topic = topics[topic_index]
+
+        print(colored(f"--> {role_tag} (XP: {current_xp}) đang học bài số {topic_index + 1}: {current_topic}", "white"))
         # 1. Giả lập học (Hoặc gọi Perplexity thật nếu có)
         learned_content = f"Nội dung chi tiết về {current_topic} cập nhật lúc {datetime.now()}"
         if LLM_PERPLEXITY:
@@ -278,6 +302,7 @@ async def specialized_training_job(role_tag: str):
             ))
 
         # 3. Cập nhật XP và Level vào Database (Cho Admin Panel)
+        new_xp = current_xp + 50
         with db_manager.get_connection() as conn:
             c = conn.cursor()
             # Lấy XP cũ
