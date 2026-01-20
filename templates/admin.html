@@ -171,44 +171,51 @@
 
         // 2. Hàm tải danh sách Agent (Đội ngũ chuyên gia)
         async function loadAgents() {
-            try {
-                const res = await fetch('/api/agents/status');
-                const agents = await res.json();
-                
-                const container = document.getElementById('agent-list-container'); // Đảm bảo thẻ div chứa list có id này
-                
-                if (agents.length === 0) {
-                    container.innerHTML = '<p class="text-gray-500 italic">Hệ thống đang khởi động đào tạo...</p>';
-                    return;
-                }
+        const container = document.getElementById('agent-list-container');
+        try {
+            const res = await fetch('/api/agents/status');
+            
+            // Nếu lỗi mạng (ví dụ Server đang ngủ)
+            if (!res.ok) throw new Error("Server Error");
 
-                let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
-                agents.forEach(agent => {
-                    // Tính màu sắc dựa trên Level
-                    const levelColor = agent.level > 5 ? 'text-yellow-400' : 'text-blue-400';
-                    
-                    html += `
-                    <div class="bg-gray-800 p-4 rounded-lg border border-gray-700">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-bold ${levelColor}">${agent.role_tag}</span>
-                            <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${agent.level}</span>
-                        </div>
-                        <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
-                            <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${Math.min(agent.xp % 100, 100)}%"></div>
-                        </div>
-                        <p class="text-xs text-gray-400 truncate">Đang học: ${agent.current_topic || 'Nghỉ ngơi'}</p>
-                        <p class="text-xs text-gray-500 mt-1">XP: ${agent.xp}</p>
-                    </div>
-                    `;
-                });
-                html += '</div>';
-                container.innerHTML = html;
-                
-            } catch (e) {
-                console.error("Lỗi tải Agent:", e);
+            const agents = await res.json();
+            
+            // Xóa nội dung cũ (bao gồm cả spinner quay tròn)
+            container.innerHTML = ''; 
+
+            if (agents.length === 0) {
+                container.innerHTML = '<div class="col-span-3 text-center text-gray-500 py-4">Hệ thống đang khởi tạo dữ liệu... (Vui lòng đợi 30s và F5)</div>';
+                return;
             }
-        }
 
+            let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
+            agents.forEach(agent => {
+                const levelColor = agent.level > 5 ? 'text-yellow-400' : 'text-blue-400';
+                html += `
+                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold ${levelColor}">${agent.role_tag}</span>
+                        <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${agent.level}</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
+                        <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${Math.min(agent.xp % 100, 100)}%"></div>
+                    </div>
+                    <p class="text-xs text-gray-400 truncate">Status: <span class="text-white">${agent.current_topic || 'Sẵn sàng'}</span></p>
+                    <p class="text-xs text-gray-500 mt-1">Total XP: ${agent.xp}</p>
+                </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+            
+        } catch (e) {
+            console.error("Lỗi tải Agent:", e);
+            // [QUAN TRỌNG] Tắt quay tròn và báo lỗi
+            container.innerHTML = `<div class="text-red-400 text-center p-4 border border-red-900 rounded bg-red-900/20">
+                ⚠️ Mất kết nối Server. Đang thử lại...
+            </div>`;
+        }
+    }
         // 3. Chạy ngay khi mở trang
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
