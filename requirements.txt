@@ -4,6 +4,7 @@ python-multipart
 aiofiles
 jinja2
 python-dotenv
+pysqlite3-binary
 termcolor
 requests
 apscheduler
@@ -23,4 +24,5 @@ numpy
 openai
 google-generativeai
 anthropic
+
 
