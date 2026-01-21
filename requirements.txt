@@ -24,5 +24,7 @@ numpy
 openai
 google-generativeai
 anthropic
+langchain-text-splitters
+
 
 
