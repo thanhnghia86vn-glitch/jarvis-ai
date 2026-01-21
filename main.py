@@ -1,3 +1,4 @@
+
 import sys
 import os
 try:
@@ -976,14 +977,14 @@ def dynamic_orchestrator(state):
 
 def supervisor_node(state):
     """
-    SUPERVISOR V3 (HYBRID): KẾT HỢP TƯ DUY NGỮ CẢNH & CƠ CHẾ TỰ SỬA LỖI.
+    SUPERVISOR V3 (FIXED): ĐÃ SỬA LỖI BIND_FUNCTIONS & TỐI ƯU LOGIC
     """
     print(colored(f"\n[🧠 SUPERVISOR] Đang phân tích chiến lược (Bước {len(state['messages'])})...", "cyan", attrs=["bold"]))
 
-    # 1. LẤY DỮ LIỆU ĐẦY ĐỦ TỪ STATE (GIỮ NGUYÊN ĐỂ TRÁNH LỖI GRAPH)
+    # 1. LẤY DỮ LIỆU AN TOÀN
     messages = state.get("messages", [])
-    error_log = state.get("error_log", [])      # <--- Bắt buộc
-    task_type = state.get("task_type", "general") # <--- Bắt buộc
+    error_log = state.get("error_log", [])      
+    task_type = state.get("task_type", "general") 
 
     # 2. KIỂM TRA GIỚI HẠN (Safety Guard)
     if len(messages) > 150:
@@ -995,26 +996,20 @@ def supervisor_node(state):
             "task_type": task_type
         }
 
-    # 3. ĐỊNH NGHĨA "TỪ ĐIỂN SỬA SAI" (AUTO-CORRECT MAP)
-    # Đây là lớp phòng thủ: Nếu AI lỡ miệng gọi tên sai, ta âm thầm sửa lại ngay
+    # 3. AUTO-CORRECT MAP (Lớp phòng thủ)
     AGENT_ALIASES = {
-        "FINANCE": "Investment",
-        "MONEY": "Investment",
-        "STOCK": "Investment",
-        "CFO": "Investment",
-        "CODE": "Coder",
-        "DEV": "Coder",
-        "MARKET": "Researcher",
-        "SEARCH": "Researcher",
-        "DESIGN": "Hardware",
+        "FINANCE": "Investment", "MONEY": "Investment", "STOCK": "Investment", "CFO": "Investment",
+        "CODE": "Coder", "DEV": "Coder", "DEVELOPER": "Coder",
+        "MARKET": "Researcher", "SEARCH": "Researcher",
+        "DESIGN": "Hardware", "HARDWARE": "Hardware",
         "IOT": "IoT_Engineer",
-        "WRITER": "Storyteller",
+        "WRITER": "Storyteller", "STORY": "Storyteller",
         "PUBLISH": "Publisher",
-        "REVIEW": "Tester",
-        "HR": "Secretary"
+        "REVIEW": "Tester", "TEST": "Tester",
+        "HR": "Secretary", "ADMIN": "Secretary"
     }
 
-    # Danh sách Node CHÍNH THỨC trong Graph (Phải khớp 100% với nodes_map)
+    # Danh sách Node chuẩn
     VALID_NODES = [
         "Coder", "Researcher", "Hardware", "Strategy_R_and_D", 
         "Marketing", "Storyteller", "Legal", "Investment", 
@@ -1022,55 +1017,44 @@ def supervisor_node(state):
         "Tester", "Secretary", "FINISH"
     ]
 
-    # 4. THIẾT LẬP SYSTEM PROMPT (TƯ DUY NGỮ CẢNH)
-    # Dạy AI hiểu "Việc này là của ai?" thay vì chỉ nhớ tên
-    jarvis_style = (
-        "\n[PHONG CÁCH]: Trả lời ngắn gọn, quyết đoán như một CEO thực thụ. "
-        "Hiểu ý tại ngôn ngoại. Ví dụ: CEO hỏi 'Giá vàng' -> Hiểu là Tài chính (Investment)."
-    )
-    
+    # 4. SYSTEM PROMPT
     roles_description = """
-    PHÂN TÍCH Ý ĐỊNH VÀ CHỌN NHÂN SỰ PHÙ HỢP:
-    - [Researcher]: Tìm kiếm thông tin, Tin tức, Dữ liệu thị trường, Đối thủ.
-    - [Investment]: Tài chính, Tiền, Chứng khoán, Lợi nhuận, Giá cả, Ngân sách.
-    - [Coder]: Viết code, Lập trình, Web, App, Debug.
-    - [Hardware]: Phần cứng, Mạch điện, Chip, Robot, Sơ đồ chân.
-    - [Strategy_R_and_D]: Chiến lược, Kế hoạch kinh doanh, SWOT.
-    - [Marketing]: Quảng cáo, Viết content, Facebook, Email.
-    - [Storyteller]: Viết truyện, Kịch bản, Sáng tác văn học.
-    - [Legal]: Luật pháp, Bản quyền.
-    - [FINISH]: Khi việc đã xong hoặc chỉ chào hỏi xã giao.
+    DANH SÁCH CHUYÊN GIA:
+    - [Researcher]: Tìm kiếm thông tin, Tin tức, Dữ liệu.
+    - [Investment]: Tài chính, Ngân sách, Giá cả.
+    - [Coder]: Viết code, Lập trình, Debug.
+    - [Hardware]: Phần cứng, Mạch điện, Chip.
+    - [Strategy_R_and_D]: Chiến lược, Kế hoạch.
+    - [Marketing]: Quảng cáo, Content.
+    - [Storyteller]: Viết truyện, Kịch bản.
+    - [Legal]: Luật pháp.
+    - [Engineering]: Kỹ thuật 3D, Mô phỏng.
+    - [IoT_Engineer]: Kết nối cảm biến, MQTT.
+    - [Procurement]: Mua sắm, BOM.
+    - [Artist]: Vẽ tranh.
+    - [Tester]: Kiểm thử.
+    - [Secretary]: Thư ký, Ghi chép.
+    - [FINISH]: Hoàn thành hoặc Chào hỏi.
     """
 
     system_prompt = (
         "Bạn là J.A.R.V.I.S - Tổng điều hành AI Corporation.\n"
         f"{roles_description}\n"
-        f"QUY TẮC: Chỉ chọn nhân sự trong danh sách trên. {jarvis_style}"
+        "QUY TẮC: Phân tích yêu cầu và chọn CHÍNH XÁC 1 nhân sự để thực hiện."
     )
 
-    # Xử lý hình ảnh (Giữ nguyên logic cũ)
-    last_msg = messages[-1].content
-    # query, image_b64 = process_vision_message(last_msg) # Uncomment nếu dùng hàm này
-    query = last_msg
-    image_b64 = None
+    # Tạo hội thoại input
+    # (Mẹo: Chỉ lấy 10 tin nhắn cuối để tiết kiệm token và tránh nhiễu)
+    conversation = [SystemMessage(content=system_prompt)] + messages[-10:]
 
-    user_input = query
-    if image_b64:
-        user_input = [
-            {"type": "text", "text": f"Phân tích: {query}"},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
-        ]
-
-    conversation = [SystemMessage(content=system_prompt)] + messages[-5:] + [HumanMessage(content=str(user_input))]
-
-    # 5. FUNCTION CALLING
+    # 5. FUNCTION CALLING DEF
     function_def = [{
         "name": "route_to_agent",
         "description": "Điều phối nhân sự.",
         "parameters": {
             "type": "object",
             "properties": {
-                "next": {"type": "string", "enum": VALID_NODES}, # Gợi ý cho AI biết danh sách đúng
+                "next": {"type": "string", "enum": VALID_NODES},
                 "reason": {"type": "string", "description": "Lý do chọn agent này."}
             },
             "required": ["next", "reason"]
@@ -1078,8 +1062,9 @@ def supervisor_node(state):
     }]
 
     try:
-        # Gọi Model
-        response = LLM_GPT4.bind_functions(functions=function_def, function_call={"name": "route_to_agent"}).invoke(conversation)
+        # --- [FIX QUAN TRỌNG] DÙNG .BIND THAY VÌ .BIND_FUNCTIONS ---
+        # Đây là chỗ sửa lỗi AttributeError
+        response = LLM_GPT4.bind(functions=function_def, function_call={"name": "route_to_agent"}).invoke(conversation)
         
         # Parse kết quả
         arguments = response.additional_kwargs.get("function_call", {}).get("arguments", "{}")
@@ -1088,30 +1073,27 @@ def supervisor_node(state):
         raw_next = str(args.get("next", "FINISH"))
         reason = args.get("reason", "Theo quy trình.")
 
-        # --- 6. LOGIC "BỌC THÉP" (AUTO-CORRECT & VALIDATION) ---
-        
-        # Bước 1: Chuẩn hóa chữ hoa để so sánh
+        # --- 6. LOGIC "BỌC THÉP" (VALIDATION) ---
         next_upper = raw_next.upper()
 
-        # Bước 2: Sửa lỗi bằng từ điển (Ví dụ: FINANCE -> Investment)
+        # Ưu tiên 1: Sửa lỗi bằng Alias
         if next_upper in AGENT_ALIASES:
             final_next = AGENT_ALIASES[next_upper]
             print(colored(f"⚠️ Auto-Correct: '{raw_next}' -> '{final_next}'", "yellow"))
         
-        # Bước 3: Kiểm tra xem có nằm trong danh sách node thật không
+        # Ưu tiên 2: Nếu đúng rồi thì giữ nguyên
         elif raw_next in VALID_NODES:
             final_next = raw_next
         
-        # Bước 4: Nếu sai bét nhè -> Về FINISH cho an toàn
+        # Ưu tiên 3: Nếu sai hoàn toàn -> FINISH
         else:
             print(colored(f"🚨 Tên lạ '{raw_next}' -> Chuyển về FINISH", "red"))
             final_next = "FINISH"
 
-        print(colored(f"--> [QUYẾT ĐỊNH]: {final_next} | Lý do: {reason}", "yellow"))
+        print(colored(f"--> [ĐIỀU PHỐI]: {final_next} | Lý do: {reason}", "green"))
 
-        # --- TRẢ VỀ STATE (ĐỦ 5 KHÓA) ---
         return {
-            "messages": [AIMessage(content=f"📡 **Lệnh điều hành**: Chuyển giao cho **{final_next}**.\n**Lý do**: {reason}")],
+            "messages": [AIMessage(content=f"📡 **Điều phối**: {final_next}\n📝 **Lý do**: {reason}")],
             "next_step": final_next,
             "current_agent": "Supervisor",
             "error_log": error_log,     
@@ -1120,10 +1102,9 @@ def supervisor_node(state):
 
     except Exception as e:
         print(colored(f"⚠️ Lỗi Supervisor: {e}", "red"))
-        # Fallback an toàn
         return {
             "messages": [AIMessage(content=f"⚠️ Lỗi điều phối: {str(e)}")], 
-            "next_step": "FINISH", # Về đích an toàn
+            "next_step": "FINISH",
             "current_agent": "Supervisor",
             "error_log": error_log + [str(e)],
             "task_type": task_type
@@ -2369,8 +2350,4 @@ if __name__ == "__main__":
         # Chạy vòng lặp chính thông qua asyncio
         asyncio.run(main_loop())
     except KeyboardInterrupt:
-
         print("\n👋 Đã thoát hệ thống.")
-
-
-
