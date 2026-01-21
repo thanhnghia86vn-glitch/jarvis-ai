@@ -1,13 +1,13 @@
 import sys
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-    print("✅ Đã thay thế SQLite3 bằng pysqlite3-binary (Fix lỗi ChromaDB)")
-except ImportError:
-    print("⚠️ Không tìm thấy pysqlite3-binary. Đang dùng SQLite mặc định.")
 import os
-import sys
+try:
+    # Chỉ áp dụng fix này khi chạy trên Server Linux (Render)
+    if os.name == 'posix': 
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+        print("✅ [SQLITE FIX] Đã ép xung SQLite thành công!")
+except ImportError:
+    pass # Bỏ qua nếu chạy trên Windows hoặc chưa cài library
 import json
 import ast
 import asyncio
@@ -2371,3 +2371,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         print("\n👋 Đã thoát hệ thống.")
+
