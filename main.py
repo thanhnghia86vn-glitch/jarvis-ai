@@ -31,9 +31,9 @@ from langchain_anthropic import ChatAnthropic
 
 from langchain_community.utilities.dalle_image_generator import DallEAPIWrapper
 from langchain_chroma import Chroma
-from langgraph.graph import StateGraph, END
+from langgraph_graph import StateGraph, END
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitter import RecursiveCharacterTextSplitter
 
 # --- CLOUD SAFE IMPORT (CHỐNG SẬP SERVER) ---
 try:
@@ -2371,4 +2371,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         print("\n👋 Đã thoát hệ thống.")
+
 
