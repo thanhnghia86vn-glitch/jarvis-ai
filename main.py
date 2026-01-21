@@ -1,3 +1,11 @@
+import sys
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    print("✅ Đã thay thế SQLite3 bằng pysqlite3-binary (Fix lỗi ChromaDB)")
+except ImportError:
+    print("⚠️ Không tìm thấy pysqlite3-binary. Đang dùng SQLite mặc định.")
 import os
 import sys
 import json
@@ -2361,4 +2369,5 @@ if __name__ == "__main__":
         # Chạy vòng lặp chính thông qua asyncio
         asyncio.run(main_loop())
     except KeyboardInterrupt:
+
         print("\n👋 Đã thoát hệ thống.")
