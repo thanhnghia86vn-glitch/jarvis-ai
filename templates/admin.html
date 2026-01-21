@@ -6,29 +6,23 @@
     <title>J.A.R.V.I.S ADMIN PANEL</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #0b1120; color: #cbd5e1; font-family: 'Segoe UI', monospace; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; }
         .neon-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.8); }
         .btn-action { transition: all 0.3s; }
         .btn-action:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4); }
-        
-        /* Hiệu ứng Input Key */
-        .key-container { position: relative; }
-        .key-input { 
-            background: rgba(15, 23, 42, 0.8); 
-            border: 1px solid #3b82f6; 
-            color: #4ade80; 
-            font-family: monospace; 
-            letter-spacing: 2px;
-        }
+        .key-input { background: rgba(15, 23, 42, 0.8); border: 1px solid #3b82f6; color: #4ade80; font-family: monospace; letter-spacing: 2px; }
+        /* Tùy chỉnh thanh cuộn */
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
     </style>
 </head>
 <body class="min-h-screen p-6">
 
     <div class="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-700 pb-6 gap-4">
-        
         <div class="flex items-center gap-4 w-full md:w-auto">
             <div class="relative">
                 <i class="fas fa-brain text-5xl text-blue-500 animate-pulse"></i>
@@ -42,16 +36,12 @@
 
         <div class="glass-panel px-4 py-3 flex items-center gap-3 w-full md:w-auto border-yellow-500/30">
             <div class="text-yellow-500 font-bold text-xs uppercase tracking-wider"><i class="fas fa-key"></i> MASTER KEY:</div>
-            
             <div class="relative flex items-center">
-                <input type="password" id="apiKeyInput" value="{{ api_key }}" readonly 
-                       class="key-input rounded px-3 py-1 text-sm w-48 focus:outline-none focus:border-yellow-400 transition">
-                
-                <button onclick="toggleKey()" class="absolute right-8 text-slate-400 hover:text-white transition px-2">
+                <input type="password" id="apiKeyInput" value="{{ api_key }}" readonly class="key-input rounded px-3 py-1 text-sm w-48 focus:outline-none focus:border-yellow-400 transition">
+                <button onclick="toggleKey()" class="absolute right-2 text-slate-400 hover:text-white transition px-2">
                     <i class="fas fa-eye" id="eyeIcon"></i>
                 </button>
             </div>
-
             <button onclick="copyKey()" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm transition" title="Copy Key">
                 <i class="fas fa-copy"></i>
             </button>
@@ -87,8 +77,8 @@
             <h2 class="text-xl font-bold text-purple-400 tracking-wide">
                 <i class="fas fa-users-cog"></i> ĐỘI NGŨ CHUYÊN GIA (AGENT ROSTER)
             </h2>
-            <button class="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600 text-slate-200 transition" onclick="loadAgentStatus()">
-                <i class="fas fa-sync-alt animate-spin-slow"></i> Cập nhật
+            <button class="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600 text-slate-200 transition" onclick="loadAgents()">
+                <i class="fas fa-sync-alt"></i> Cập nhật
             </button>
         </div>
         
@@ -138,95 +128,159 @@
                 <table class="w-full text-sm text-left text-slate-400">
                     <thead class="text-xs text-slate-200 uppercase bg-slate-700 sticky top-0 shadow-md">
                         <tr>
-                            <th scope="col" class="px-4 py-3 rounded-tl-lg">ID</th>
-                            <th scope="col" class="px-4 py-3">Tên sản phẩm</th>
-                            <th scope="col" class="px-4 py-3 rounded-tr-lg text-right">Giá ($)</th>
+                            <th class="px-4 py-3 rounded-tl-lg">ID</th>
+                            <th class="px-4 py-3">Tên sản phẩm</th>
+                            <th class="px-4 py-3 rounded-tr-lg text-right">Giá ($)</th>
                         </tr>
                     </thead>
                     <tbody id="product-list" class="divide-y divide-slate-700">
-                        </tbody>
+                        <tr><td colspan="3" class="text-center py-4 text-xs">Đang tải...</td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
     </div>
 
     <script>
-        const API_KEY = "{{ api_key }}"; // Lấy key từ Server gửi sang
+        const API_KEY = document.getElementById("apiKeyInput").value || "ai_corp_secret_123";
 
-        // 1. Hàm tải thống kê tiền tệ
+        // --- 1. HÀM TẢI THỐNG KÊ (ĐÃ SỬA ID) ---
         async function loadStats() {
             try {
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 
-                // Cập nhật số liệu lên giao diện
-                document.getElementById('revenue-display').innerText = `$${data.revenue || 0}`;
-                document.getElementById('expense-display').innerText = `$${data.expense || 0}`;
-                document.getElementById('products-count').innerText = data.products || 0;
-                document.getElementById('profit-display').innerText = `$${data.balance || 0}`;
-            } catch (e) {
-                console.error("Lỗi tải thống kê:", e);
-            }
+                // [FIXED] Sửa lại ID cho khớp với HTML
+                document.getElementById('stat-revenue').innerText = `$${data.revenue || 0}`;
+                document.getElementById('stat-expense').innerText = `$${data.expense || 0}`;
+                document.getElementById('stat-products').innerText = data.products || 0;
+                document.getElementById('stat-profit').innerText = `$${data.balance || 0}`;
+            } catch (e) { console.error("Lỗi stats:", e); }
         }
 
-        // 2. Hàm tải danh sách Agent (Đội ngũ chuyên gia)
+        // --- 2. HÀM TẢI AGENT (ĐÃ SỬA ID) ---
         async function loadAgents() {
-        const container = document.getElementById('agent-list-container');
-        try {
-            const res = await fetch('/api/agents/status');
-            
-            // Nếu lỗi mạng (ví dụ Server đang ngủ)
-            if (!res.ok) throw new Error("Server Error");
+            // [FIXED] Sửa lại ID đúng: agent-roster-container
+            const container = document.getElementById('agent-roster-container');
+            try {
+                const res = await fetch('/api/agents/status');
+                if (!res.ok) throw new Error("Server Error");
+                const agents = await res.json();
+                
+                container.innerHTML = ''; // Xóa spinner
 
-            const agents = await res.json();
-            
-            // Xóa nội dung cũ (bao gồm cả spinner quay tròn)
-            container.innerHTML = ''; 
+                if (!agents || agents.length === 0) {
+                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-4">Chưa có dữ liệu nhân sự. Hãy bấm "Ép học ngay" ở Dashboard.</div>';
+                    return;
+                }
 
-            if (agents.length === 0) {
-                container.innerHTML = '<div class="col-span-3 text-center text-gray-500 py-4">Hệ thống đang khởi tạo dữ liệu... (Vui lòng đợi 30s và F5)</div>';
-                return;
+                let html = '';
+                agents.forEach(agent => {
+                    const level = Math.floor(agent.xp / 100) + 1;
+                    const progress = agent.xp % 100;
+                    const levelColor = level > 5 ? 'text-yellow-400' : 'text-blue-400';
+                    
+                    html += `
+                    <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold ${levelColor}">${agent.role_tag}</span>
+                            <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${level}</span>
+                        </div>
+                        <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
+                            <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${progress}%"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 truncate" title="${agent.current_topic}">Act: <span class="text-white">${agent.current_topic || 'Idle'}</span></p>
+                        <p class="text-xs text-gray-500 mt-1 flex justify-between">
+                            <span>XP: ${agent.xp}</span>
+                            <span>${new Date(agent.last_updated).toLocaleTimeString()}</span>
+                        </p>
+                    </div>`;
+                });
+                container.innerHTML = html;
+                
+            } catch (e) {
+                console.error("Lỗi agent:", e);
+                container.innerHTML = '<div class="col-span-full text-red-400 text-center text-sm">⚠️ Mất kết nối Server.</div>';
             }
-
-            let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
-            agents.forEach(agent => {
-                const levelColor = agent.level > 5 ? 'text-yellow-400' : 'text-blue-400';
-                html += `
-                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="font-bold ${levelColor}">${agent.role_tag}</span>
-                        <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${agent.level}</span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
-                        <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${Math.min(agent.xp % 100, 100)}%"></div>
-                    </div>
-                    <p class="text-xs text-gray-400 truncate">Status: <span class="text-white">${agent.current_topic || 'Sẵn sàng'}</span></p>
-                    <p class="text-xs text-gray-500 mt-1">Total XP: ${agent.xp}</p>
-                </div>
-                `;
-            });
-            html += '</div>';
-            container.innerHTML = html;
-            
-        } catch (e) {
-            console.error("Lỗi tải Agent:", e);
-            // [QUAN TRỌNG] Tắt quay tròn và báo lỗi
-            container.innerHTML = `<div class="text-red-400 text-center p-4 border border-red-900 rounded bg-red-900/20">
-                ⚠️ Mất kết nối Server. Đang thử lại...
-            </div>`;
         }
-    }
-        // 3. Chạy ngay khi mở trang
+
+        // --- 3. HÀM TẢI SẢN PHẨM ---
+        async function loadProducts() {
+            const list = document.getElementById('product-list');
+            try {
+                const res = await fetch('/api/products');
+                const prods = await res.json();
+                list.innerHTML = '';
+                if(prods.length === 0) {
+                    list.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-xs">Kho trống</td></tr>';
+                    return;
+                }
+                prods.forEach(p => {
+                    list.innerHTML += `
+                        <tr class="hover:bg-slate-700/50 transition">
+                            <td class="px-4 py-3 font-mono text-blue-400">#${p.id}</td>
+                            <td class="px-4 py-3 font-bold text-white">${p.name}</td>
+                            <td class="px-4 py-3 text-right text-green-400">$${p.price}</td>
+                        </tr>`;
+                });
+            } catch(e) { list.innerHTML = '<tr><td colspan="3" class="text-center text-red-400">Lỗi tải kho</td></tr>'; }
+        }
+
+        // --- 4. HÀM HỖ TRỢ (UX) ---
+        function toggleKey() {
+            const input = document.getElementById("apiKeyInput");
+            const icon = document.getElementById("eyeIcon");
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.remove("fa-eye");
+                icon.classList.add("fa-eye-slash");
+            } else {
+                input.type = "password";
+                icon.classList.remove("fa-eye-slash");
+                icon.classList.add("fa-eye");
+            }
+        }
+
+        function copyKey() {
+            const copyText = document.getElementById("apiKeyInput");
+            copyText.select();
+            navigator.clipboard.writeText(copyText.value);
+            alert("Đã copy API Key!");
+        }
+
+        // Đồng hồ
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString();
+        }, 1000);
+
+        // Chạy khi mở trang
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
             loadAgents();
-            
-            // Tự động cập nhật mỗi 10 giây
-            setInterval(() => {
-                loadStats();
-                loadAgents();
-            }, 10000);
+            loadProducts();
+            // Cập nhật tự động 10s/lần
+            setInterval(() => { loadStats(); loadAgents(); }, 10000);
         });
+
+        // Hàm placeholder cho Training (Cần API upload ở server.py để hoạt động thật)
+        async function learnText() {
+            const text = document.getElementById('learn-text').value;
+            const status = document.getElementById('learn-status');
+            if(!text) return;
+            status.innerText = "Đang gửi dữ liệu...";
+            status.className = "text-xs mt-2 text-yellow-500 italic h-4";
+            
+            // Giả lập gửi (Ngài cần thêm API /api/train/text trong server.py để dùng thật)
+            setTimeout(() => {
+                status.innerText = "✅ Đã gửi lệnh học. Agent sẽ xử lý trong 5s.";
+                status.className = "text-xs mt-2 text-green-500 italic h-4";
+                document.getElementById('learn-text').value = "";
+            }, 1000);
+        }
+
+        function uploadPDF() {
+            alert("Tính năng Upload PDF cần cấu hình API Endpoint trong server.py");
+        }
     </script>
 </body>
 </html>
