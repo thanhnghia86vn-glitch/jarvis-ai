@@ -58,8 +58,14 @@ try:
 
     AI_AVAILABLE = True
     logger.info("✅ CORE AI MODULES: LOADED")
-except ImportError as e:
-    logger.error(f"⚠️ CORE AI FAILED TO LOAD: {e}")
+except Exception as e:
+    # --- BẮT LỖI VÀ GHI LẠI ---
+    import traceback
+    AI_BOOT_ERROR = traceback.format_exc() # Lưu toàn bộ dấu vết lỗi
+    logger.error(f"⚠️ CORE AI FAILED TO LOAD: {AI_BOOT_ERROR}")
+    
+    # Set biến về None để không crash server
+    AI_AVAILABLE = False
     ai_app = None
     vector_db = None
     LLM_GPT4 = None
@@ -1221,7 +1227,8 @@ async def health_check():
     return {
         "status": "OPERATIONAL" if "ERROR" not in db_status else "DEGRADED",
         "timestamp": datetime.now().isoformat(),
-        "version": "J.A.R.V.I.S v3.0",
+        "version": "JARVIS v3.0",
+        "chi_tiet_loi": AI_BOOT_ERROR if not AI_AVAILABLE else "Không có lỗi",
         "modules": {
             "ai_brain": "ONLINE" if AI_AVAILABLE else "OFFLINE",
             "voice_core": "ONLINE" if VOICE_AVAILABLE else "OFFLINE",
