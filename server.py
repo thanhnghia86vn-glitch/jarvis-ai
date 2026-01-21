@@ -272,95 +272,131 @@ def calculate_level(xp: int) -> int:
 
 # Cập nhật hàm đào tạo
 async def specialized_training_job(role_tag: str):
-    """Hàm đào tạo chuyên sâu: Quy trình Deep Learning (Học Hiểu)"""
-    print(colored(f"🎓 [TRAINING] Bắt đầu kiểm tra lộ trình cho {role_tag}...", "cyan"))
+    """
+    PHIÊN BẢN 6.0: GRANDMASTER TRAINING (ĐÀO TẠO ĐẠI SƯ)
+    - Phân tích chuyên sâu 500-1000 từ.
+    - Cấu trúc: Gốc rễ -> Thực chiến -> Tầm nhìn.
+    - Tự động định giá XP dựa trên độ khó.
+    """
+    print(colored(f"🎓 [GRANDMASTER TRAINING] {role_tag} đang thiền định sâu về kiến thức...", "cyan", attrs=["bold"]))
     
     topics = CURRICULUM.get(role_tag, [])
     if not topics: return
 
     try:
-        # ---------------------------------------------------------
-        # BƯỚC 1: LẤY XP HIỆN TẠI ĐỂ CHỌN BÀI HỌC (SMART CYCLING)
-        # ---------------------------------------------------------
+        # 1. CHỌN CHỦ ĐỀ (SMART CYCLING)
         current_xp = 0
         with db_manager.get_connection() as conn:
             row = conn.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
             if row: current_xp = row[0]
 
-        # Thuật toán chọn bài: (XP / 50) % Tổng số bài
-        topic_index = int(current_xp / 50) % len(topics)
+        # Vòng lặp bài học: Cứ 100 XP thì chuyển chủ đề
+        topic_index = int(current_xp / 100) % len(topics)
         current_topic = topics[topic_index]
+        print(colored(f"--> Chủ đề nghiên cứu: {current_topic}", "white"))
 
-        print(colored(f"--> {role_tag} (XP: {current_xp}) đang học bài số {topic_index + 1}: {current_topic}", "white"))
-
-        # ---------------------------------------------------------
-        # BƯỚC 2: THỰC HIỆN "HỌC HIỂU" (DEEP ANALYSIS)
-        # ---------------------------------------------------------
-        deep_knowledge = ""
-        
-        # A. Thu thập dữ liệu thô (Perplexity)
+        # 2. THU THẬP DỮ LIỆU THÔ (PERPLEXITY)
         raw_content = ""
         if LLM_PERPLEXITY:
             try:
-                res = await LLM_PERPLEXITY.ainvoke(current_topic)
+                # Tìm kiếm dữ liệu bao quát và mới nhất
+                res = await LLM_PERPLEXITY.ainvoke(f"Báo cáo chuyên sâu và chi tiết nhất về: {current_topic}")
                 raw_content = res.content
             except Exception as e:
                 print(colored(f"⚠️ Lỗi tìm kiếm: {e}", "yellow"))
-        
-        # B. Phân tích sâu (Gemini) - Biến dữ liệu thô thành tri thức
-        if raw_content and LLM_GEMINI:
-            analysis_prompt = f"""
-            Bạn là chuyên gia {role_tag}. Hãy đọc dữ liệu thô sau về chủ đề "{current_topic}":
-            ---
-            {raw_content[:4000]}
-            ---
-            NHIỆM VỤ: Đừng chỉ tóm tắt. Hãy PHÂN TÍCH CHIẾN LƯỢC:
-            1. Nguyên nhân cốt lõi/Cơ chế hoạt động là gì?
-            2. Xu hướng và tác động trong tương lai (2026+)?
-            3. Ứng dụng thực tế vào công việc là gì?
-            
-            Trả về nội dung phân tích súc tích (khoảng 300 từ) để nạp vào bộ nhớ.
-            """
-            try:
-                ai_res = await LLM_GEMINI.ainvoke(analysis_prompt)
-                deep_knowledge = ai_res.content
-            except:
-                deep_knowledge = raw_content # Fallback nếu Gemini lỗi
-        else:
-            deep_knowledge = raw_content or f"Kiến thức cơ bản về {current_topic}"
 
-        # ---------------------------------------------------------
-        # BƯỚC 3: LƯU TRI THỨC VÀO BỘ NHỚ (VECTOR DB)
-        # ---------------------------------------------------------
-        if MEMORY_AVAILABLE and vector_db and deep_knowledge:
-            # QUAN TRỌNG: Lưu deep_knowledge (cái đã khôn), không lưu rác
+        # 3. KÍCH HOẠT TƯ DUY KẾT TINH (GEMINI/GPT)
+        final_insight = ""
+        xp_earned = 50 # Điểm mặc định
+        
+        if raw_content and LLM_GEMINI:
+            # PROMPT ĐƯỢC THIẾT KẾ ĐỂ TẠO RA "SÁCH GIÁO KHOA"
+            grandmaster_prompt = f"""
+            Bạn là Grandmaster (Đại sư) trong lĩnh vực {role_tag}.
+            Dữ liệu thô từ internet: "{raw_content[:6000]}"
+            
+            NHIỆM VỤ: VIẾT MỘT BÀI LUẬN CHUYÊN SÂU (500 - 1000 TỪ).
+            Đây phải là sự "kết tinh" của tri thức, không phải tóm tắt hời hợt.
+            
+            HÃY TUÂN THỦ CẤU TRÚC 3 TRỤ CỘT SAU:
+
+            1️⃣ NGUYÊN LÝ GỐC RỄ (THE ROOT CAUSE):
+               - Đào sâu vào bản chất vật lý, toán học, tâm lý học hoặc cơ chế cốt lõi.
+               - Tại sao nó tồn tại? Tại sao nó hoạt động như vậy? (Tư duy First Principles).
+
+            2️⃣ ỨNG DỤNG THỰC CHIẾN (THE PRACTICAL REALITY):
+               - Triển khai vào dự án thực tế như thế nào? (Quy trình, Công cụ, Code pattern).
+               - Các bẫy (pitfalls) cần tránh và kinh nghiệm xương máu.
+               - Ví dụ cụ thể (Case study).
+
+            3️⃣ TẦM NHÌN CHIẾN LƯỢC (THE FUTURE VISION 2026+):
+               - Công nghệ/Xu hướng này sẽ tiến hóa ra sao trong 3-5 năm tới?
+               - Cơ hội tỷ đô nằm ở đâu? Rủi ro bị đào thải là gì?
+
+            ---
+            CUỐI CÙNG: ĐÁNH GIÁ ĐỘ KHÓ (XP SCORING)
+            Hãy tự chấm điểm độ sâu của kiến thức này trên thang 1-100.
+            (Ví dụ: Kiến thức đại trà = 20đ, Bí mật công nghệ lõi = 100đ).
+            
+            OUTPUT FORMAT (BẮT BUỘC):
+            [SCORE]: <Điểm số>
+            [CONTENT]:
+            <Nội dung bài luận chi tiết...>
+            """
+            
+            try:
+                # Dùng Gemini để viết bài luận dài
+                ai_res = await LLM_GEMINI.ainvoke(grandmaster_prompt)
+                response_text = ai_res.content
+                
+                # --- LOGIC BÓC TÁCH ---
+                # 1. Lấy điểm số
+                score_match = re.search(r"\[SCORE\]:\s*(\d+)", response_text)
+                if score_match:
+                    raw_score = int(score_match.group(1))
+                    # Nhân hệ số thưởng vì bài viết dài và sâu (x1.5)
+                    xp_earned = int(max(20, min(raw_score, 100)) * 1.5)
+                
+                # 2. Lấy nội dung (Loại bỏ dòng Score)
+                final_insight = re.sub(r"\[SCORE\]:.*\n?", "", response_text).replace("[CONTENT]:", "").strip()
+                
+            except Exception as e:
+                print(colored(f"⚠️ Lỗi tổng hợp kiến thức: {e}", "red"))
+                final_insight = raw_content
+                xp_earned = 30 
+        else:
+            final_insight = raw_content or f"Kiến thức cơ bản về {current_topic}"
+
+        # 4. LƯU "KẾT TINH" VÀO BỘ NHỚ (VECTOR DB)
+        if MEMORY_AVAILABLE and vector_db and final_insight:
             await run_in_threadpool(lambda: vector_db.add_texts(
-                texts=[deep_knowledge],
+                texts=[final_insight],
                 metadatas=[{
-                    "source": "Deep-Training", 
+                    "source": "Grandmaster_Training", 
                     "agent": role_tag, 
                     "topic": current_topic,
-                    "level": calculate_level(current_xp)
+                    "depth": "High (500-1000 words)",
+                    "score": xp_earned
                 }]
             ))
+            print(colored(f"🧠 [{role_tag}] Đã nạp {len(final_insight.split())} từ tinh hoa vào não bộ.", "magenta"))
 
-        # ---------------------------------------------------------
-        # BƯỚC 4: THĂNG CẤP (UPDATE DATABASE)
-        # ---------------------------------------------------------
-        new_xp = current_xp + 50
+        # 5. CẬP NHẬT TRẠNG THÁI & XP
+        new_xp = current_xp + xp_earned
         with db_manager.get_connection() as conn:
             c = conn.cursor()
             c.execute("""
                 INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated)
                 VALUES (?, ?, ?, ?)
-            """, (role_tag, new_xp, current_topic, datetime.now()))
+            """, (role_tag, new_xp, f"Deep Learning: {current_topic}", datetime.now()))
             conn.commit()
             
-        print(colored(f"✅ [UPGRADE] {role_tag} đã nạp kiến thức mới. XP: {new_xp} (Lv.{calculate_level(new_xp)})", "green"))
+        # Hiển thị màu sắc dựa trên thành tích
+        color = "green" if xp_earned < 80 else "yellow" if xp_earned < 120 else "magenta"
+        print(colored(f"✅ [LEVEL UP] {role_tag} +{xp_earned} XP | Tổng: {new_xp} (Lv.{calculate_level(new_xp)})", color))
 
     except Exception as e:
         print(colored(f"❌ Lỗi đào tạo {role_tag}: {e}", "red"))
-# Trong server.py, phần khai báo API
 
 async def morning_briefing_job():
     """
