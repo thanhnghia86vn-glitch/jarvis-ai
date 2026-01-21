@@ -266,60 +266,91 @@ def calculate_level(xp: int) -> int:
 
 # Cập nhật hàm đào tạo
 async def specialized_training_job(role_tag: str):
-    """Hàm đào tạo chuyên sâu cho từng Agent"""
-    print(colored(f"🎓 [TRAINING] Bắt đầu đào tạo cho {role_tag}...", "cyan"))
+    """Hàm đào tạo chuyên sâu: Quy trình Deep Learning (Học Hiểu)"""
+    print(colored(f"🎓 [TRAINING] Bắt đầu kiểm tra lộ trình cho {role_tag}...", "cyan"))
     
     topics = CURRICULUM.get(role_tag, [])
     if not topics: return
-    
+
     try:
-        # 1. [TỐI ƯU] Lấy XP TRƯỚC để tính toán bài cần học
+        # ---------------------------------------------------------
+        # BƯỚC 1: LẤY XP HIỆN TẠI ĐỂ CHỌN BÀI HỌC (SMART CYCLING)
+        # ---------------------------------------------------------
         current_xp = 0
         with db_manager.get_connection() as conn:
             row = conn.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
             if row: current_xp = row[0]
 
-        # 2. Thuật toán "Smart Cycling": Dùng XP để chọn bài
-        # Mỗi lần học được 50 XP. Ta chia 50 lấy phần nguyên để ra số thứ tự bài.
-        # Dùng toán tử % (chia lấy dư) để khi học hết bài cuối sẽ tự quay lại bài 1.
+        # Thuật toán chọn bài: (XP / 50) % Tổng số bài
         topic_index = int(current_xp / 50) % len(topics)
         current_topic = topics[topic_index]
 
         print(colored(f"--> {role_tag} (XP: {current_xp}) đang học bài số {topic_index + 1}: {current_topic}", "white"))
-        # 1. Giả lập học (Hoặc gọi Perplexity thật nếu có)
-        learned_content = f"Nội dung chi tiết về {current_topic} cập nhật lúc {datetime.now()}"
+
+        # ---------------------------------------------------------
+        # BƯỚC 2: THỰC HIỆN "HỌC HIỂU" (DEEP ANALYSIS)
+        # ---------------------------------------------------------
+        deep_knowledge = ""
+        
+        # A. Thu thập dữ liệu thô (Perplexity)
+        raw_content = ""
         if LLM_PERPLEXITY:
             try:
                 res = await LLM_PERPLEXITY.ainvoke(current_topic)
-                learned_content = res.content
-            except: pass
+                raw_content = res.content
+            except Exception as e:
+                print(colored(f"⚠️ Lỗi tìm kiếm: {e}", "yellow"))
+        
+        # B. Phân tích sâu (Gemini) - Biến dữ liệu thô thành tri thức
+        if raw_content and LLM_GEMINI:
+            analysis_prompt = f"""
+            Bạn là chuyên gia {role_tag}. Hãy đọc dữ liệu thô sau về chủ đề "{current_topic}":
+            ---
+            {raw_content[:4000]}
+            ---
+            NHIỆM VỤ: Đừng chỉ tóm tắt. Hãy PHÂN TÍCH CHIẾN LƯỢC:
+            1. Nguyên nhân cốt lõi/Cơ chế hoạt động là gì?
+            2. Xu hướng và tác động trong tương lai (2026+)?
+            3. Ứng dụng thực tế vào công việc là gì?
+            
+            Trả về nội dung phân tích súc tích (khoảng 300 từ) để nạp vào bộ nhớ.
+            """
+            try:
+                ai_res = await LLM_GEMINI.ainvoke(analysis_prompt)
+                deep_knowledge = ai_res.content
+            except:
+                deep_knowledge = raw_content # Fallback nếu Gemini lỗi
+        else:
+            deep_knowledge = raw_content or f"Kiến thức cơ bản về {current_topic}"
 
-        # 2. Lưu vào Vector DB (Ký ức dài hạn)
-        if MEMORY_AVAILABLE and vector_db:
+        # ---------------------------------------------------------
+        # BƯỚC 3: LƯU TRI THỨC VÀO BỘ NHỚ (VECTOR DB)
+        # ---------------------------------------------------------
+        if MEMORY_AVAILABLE and vector_db and deep_knowledge:
+            # QUAN TRỌNG: Lưu deep_knowledge (cái đã khôn), không lưu rác
             await run_in_threadpool(lambda: vector_db.add_texts(
-                texts=[learned_content],
-                metadatas=[{"source": "Auto-Training", "agent": role_tag, "topic": current_topic}]
+                texts=[deep_knowledge],
+                metadatas=[{
+                    "source": "Deep-Training", 
+                    "agent": role_tag, 
+                    "topic": current_topic,
+                    "level": calculate_level(current_xp)
+                }]
             ))
 
-        # 3. Cập nhật XP và Level vào Database (Cho Admin Panel)
+        # ---------------------------------------------------------
+        # BƯỚC 4: THĂNG CẤP (UPDATE DATABASE)
+        # ---------------------------------------------------------
         new_xp = current_xp + 50
         with db_manager.get_connection() as conn:
             c = conn.cursor()
-            # Lấy XP cũ
-            row = c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
-            current_xp = row[0] if row else 0
-            
-            # Cộng XP (50 điểm mỗi lần học)
-            new_xp = current_xp + 50
-            
-            # Lưu
             c.execute("""
                 INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated)
                 VALUES (?, ?, ?, ?)
             """, (role_tag, new_xp, current_topic, datetime.now()))
             conn.commit()
             
-        print(colored(f"✅ [UPGRADE] {role_tag} học xong '{current_topic}'. XP: {new_xp} (Lv.{calculate_level(new_xp)})", "green"))
+        print(colored(f"✅ [UPGRADE] {role_tag} đã nạp kiến thức mới. XP: {new_xp} (Lv.{calculate_level(new_xp)})", "green"))
 
     except Exception as e:
         print(colored(f"❌ Lỗi đào tạo {role_tag}: {e}", "red"))
