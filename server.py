@@ -14,6 +14,7 @@ import json
 import base64
 import asyncio
 import re
+from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -195,44 +196,86 @@ CURRICULUM = {
 # 1. DATABASE MANAGER
 # ==========================================
 class DatabaseManager:
-    """Quản lý kết nối Database cho Server"""
-    def __init__(self, db_path=DB_PATH):
-        self.db_path = db_path
+    def __init__(self):
+        # 1. Lấy link DB (Ưu tiên từ biến môi trường, nếu không có thì dùng file Local)
+        # Lưu ý: DB_PATH phải được định nghĩa ở trên đầu file server.py (vd: DB_PATH = "jarvis_memory.db")
+        self.db_url = os.environ.get("DATABASE_URL")
+        
+        if self.db_url:
+            # Fix lỗi tương thích: Render dùng 'postgres://' nhưng SQLAlchemy cần 'postgresql://'
+            if self.db_url.startswith("postgres://"):
+                self.db_url = self.db_url.replace("postgres://", "postgresql://", 1)
+            
+            # Tạo động cơ kết nối Cloud
+            self.engine = create_engine(self.db_url)
+            print(colored("🔌 KẾT NỐI DATABASE: CLOUD (POSTGRESQL)", "green"))
+        else:
+            # Tạo động cơ kết nối Local (SQLite) qua SQLAlchemy
+            # Lưu ý: Dùng 3 dấu gạch chéo /// cho đường dẫn tương đối
+            self.engine = create_engine(f"sqlite:///{DB_PATH}")
+            print(colored("🔌 KẾT NỐI DATABASE: LOCAL (SQLITE)", "cyan"))
 
     def get_connection(self):
-        """Tạo kết nối cho lệnh 'with'"""
-        return sqlite3.connect(self.db_path, check_same_thread=False)
+        """
+        [FIX LỖI QUAN TRỌNG]
+        Hàm này bây giờ trả về kết nối của SQLAlchemy chứ KHÔNG dùng sqlite3 trực tiếp nữa.
+        """
+        return self.engine.connect()
     
     def init_db(self):
-        """Khởi tạo cấu trúc bảng & Dữ liệu mẫu (Seed Data)"""
-        with self.get_connection() as conn:
-            # 1. Tạo bảng
-            conn.execute("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)")
-            conn.execute("CREATE TABLE IF NOT EXISTS finance_logs (id INTEGER PRIMARY KEY, type TEXT, amount REAL)")
-            conn.execute('''CREATE TABLE IF NOT EXISTS agent_status 
-                            (role_tag TEXT PRIMARY KEY, 
-                             xp INTEGER DEFAULT 0, 
-                             current_topic TEXT, 
-                             last_updated DATETIME)''')
-            
-            # 2. [MỚI] KIỂM TRA & TẠO DỮ LIỆU MẪU NGAY LẬP TỨC
-            cursor = conn.cursor()
-            count = cursor.execute("SELECT count(*) FROM agent_status").fetchone()[0]
-            
-            if count == 0:
-                print(colored("🌱 DATABASE TRỐNG - ĐANG KHỞI TẠO ĐỘI NGŨ AGENT...", "yellow"))
-                # Lấy danh sách từ CURRICULUM (đảm bảo biến này đã khai báo ở trên)
-                now = datetime.now()
-                for role in CURRICULUM.keys():
-                    cursor.execute("""
-                        INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
-                        VALUES (?, ?, ?, ?)
-                    """, (role, 0, "Đang chờ lệnh (Idle)", now))
+        """Khởi tạo cấu trúc bảng & Dữ liệu mẫu (Chuẩn SQLAlchemy)"""
+        try:
+            with self.get_connection() as conn:
+                # 1. TẠO CÁC BẢNG (Dùng cú pháp text() để an toàn)
+                # Lưu ý: PostgreSQL dùng SERIAL cho ID tự tăng, SQLite dùng INTEGER PRIMARY KEY
+                # Để tương thích cả 2 mà không dùng ORM phức tạp, ta dùng cấu trúc chuẩn SQL
+                
+                # Bảng Products
+                conn.execute(text("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)"))
+                
+                # Bảng Finance Logs
+                conn.execute(text("CREATE TABLE IF NOT EXISTS finance_logs (id INTEGER PRIMARY KEY, type TEXT, amount REAL)"))
+                
+                # Bảng Agent Status (Quan trọng nhất)
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_status (
+                        role_tag TEXT PRIMARY KEY, 
+                        xp INTEGER DEFAULT 0, 
+                        current_topic TEXT, 
+                        last_updated TIMESTAMP
+                    )
+                """))
+                
+                # 2. KIỂM TRA & TẠO DỮ LIỆU MẪU
+                # Không dùng cursor() nữa, dùng thẳng conn.execute
+                result = conn.execute(text("SELECT count(*) FROM agent_status"))
+                count = result.fetchone()[0]
+                
+                if count == 0:
+                    print(colored("🌱 DATABASE TRỐNG - ĐANG KHỞI TẠO ĐỘI NGŨ AGENT...", "yellow"))
+                    now = datetime.now()
+                    
+                    # Lặp qua danh sách Agent
+                    for role in CURRICULUM.keys():
+                        # LƯU Ý: Thay dấu ? bằng :param (Cú pháp của SQLAlchemy)
+                        conn.execute(text("""
+                            INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
+                            VALUES (:role, 0, 'Đang chờ lệnh (Idle)', :time)
+                        """), {"role": role, "time": now})
+                        
+                    conn.commit()
+                    print(colored("✅ Đã tạo hồ sơ cho 15 chuyên gia AI.", "green"))
+                else:
+                    print(colored("✅ Database đã có dữ liệu.", "green"))
+                    
+                # Nhớ commit cuối cùng để chắc chắn lưu
                 conn.commit()
-                print(colored("✅ Đã tạo hồ sơ cho 15 chuyên gia AI.", "green"))
-            
-        logger.info("✅ DATABASE INITIALIZED")
 
+        except Exception as e:
+            print(colored(f"❌ Lỗi khởi tạo DB: {e}", "red"))
+            # In ra lỗi chi tiết để debug nếu cần
+            import traceback
+            traceback.print_exc()
 db_manager = DatabaseManager()
 
 # ==========================================
@@ -983,6 +1026,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         if os.path.exists(file_path): os.remove(file_path)
         raise HTTPException(status_code=500, detail=str(e))
+
 # ==========================================
 # 6. WEBSOCKET (REAL-TIME DASHBOARD)
 # ==========================================
