@@ -25,6 +25,8 @@ openai
 google-generativeai
 anthropic
 langchain-text-splitters
+psycopg2-binary
+sqlalchemy
 
 
 
