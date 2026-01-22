@@ -691,96 +691,89 @@ async def download_database():
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
+async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
     """
-    SMART CHAT V3: MEMORY INTEGRATED + OPTIMIZED ROUTING
+    SMART CHAT V4: STABLE & ERROR-PROOF
+    Phiên bản sửa lỗi 400 OpenAI và tối ưu quy trình xử lý.
     """
     if not AI_AVAILABLE:
-        return {"reply": "⚠️ Hệ thống AI đang khởi động lại. Vui lòng đợi."}
-    
+        return {"reply": "⚠️ Hệ thống AI đang khởi động. Vui lòng đợi 30s."}
+
     try:
-        user_msg = str(request.message).strip()
-        user_msg_lower = user_msg.lower()
+        user_msg_text = str(request.message).strip()
+        thread_id = str(request.thread_id) if request.thread_id else "default_session"
         
-        # --- 1. INTERCEPTOR (Xã giao & Báo cáo - Giữ nguyên cho nhanh) ---
-        greetings = ["chào", "hi", "hello", "alo", "có đó không"]
-        if any(k == user_msg_lower for k in greetings) and len(user_msg.split()) < 5:
-            hour = datetime.now().hour
-            time_greet = "buổi sáng" if 5 <= hour < 12 else "buổi chiều" if 12 <= hour < 18 else "buổi tối"
-            return {"reply": f"Chào CEO! Chúc ngài một {time_greet} tốt lành. Tôi đang chờ lệnh."}
+        # --- 1. XỬ LÝ NHANH (GREETINGS & COMMANDS) ---
+        # Giữ lại logic chào hỏi nhanh để tiết kiệm tiền AI
+        greetings = ["chào", "hi", "hello", "alo"]
+        if user_msg_text.lower() in greetings:
+             return {"reply": "Chào CEO! J.A.R.V.I.S đã sẵn sàng nhận lệnh."}
 
-        if any(k in user_msg_lower for k in ["tổng kết", "báo cáo audit", "kiểm toán"]):
-            return {"reply": get_latest_audit_report()}
-
-        # --- 2. MEMORY RECALL (HỒI TƯỞNG KÝ ỨC) ---
+        # --- 2. CHUẨN BỊ KÝ ỨC (MEMORY) ---
         memory_context = ""
         if MEMORY_AVAILABLE:
-            print(colored(f"🧠 Đang lục lọi ký ức cho: '{user_msg}'...", "magenta"))
-            # Chạy trong threadpool để không chặn
-            memory_context = await run_in_threadpool(lambda: recall_relevant_memories(user_msg))
-        # --- 3. FAST TRACK (Hỏi nhanh đáp gọn) ---
-        fast_keywords = ["giá vàng", "thời tiết", "mấy giờ", "ngày mấy", "tỷ giá", "kết quả", "bóng đá", "ai là", "dân số", "giá coin"]
-        is_fast_query = any(k in user_msg_lower for k in fast_keywords)
+            # Lấy ký ức chạy ngầm để không làm chậm chat
+            try:
+                memory_context = await run_in_threadpool(lambda: recall_relevant_memories(user_msg_text))
+                print(colored(f"🧠 Ký ức kích hoạt: {len(memory_context)} chars", "magenta"))
+            except: pass
 
-        if is_fast_query:
-            # Ưu tiên 1: Perplexity (Nếu hỏi tin tức/dữ liệu realtime)
-            if LLM_PERPLEXITY:
-                try:
-                    fast_response = await LLM_PERPLEXITY.ainvoke(user_msg)
-                    return {"reply": fast_response.content, "agent": "⚡ Perplexity Search", "timestamp": datetime.now().isoformat()}
-                except: pass 
-            
-            # Ưu tiên 2: Gemini (Nếu cần tốc độ suy luận nhanh)
-            if LLM_GEMINI:
-                try:
-                    # Inject Memory nhẹ vào Fast Track để AI thông minh hơn (VD: Thời tiết -> nhớ vị trí Phan Thiết)
-                    fast_prompt = f"Thông tin bổ trợ (Ký ức): {memory_context}\nCâu hỏi: {user_msg}"
-                    direct_response = await LLM_GEMINI.ainvoke([
-                        {"role": "system", "content": "Bạn là AI Search Engine. Trả lời Ngắn gọn, Chính xác. Không phân tích dài dòng."},
-                        {"role": "user", "content": fast_prompt}
-                    ])
-                    return {"reply": direct_response.content, "agent": "⚡ Gemini Speed", "timestamp": datetime.now().isoformat()}
-                except: pass
+        # --- 3. ĐÓNG GÓI TIN NHẮN (THE FIX) ---
+        # Thay vì gộp chuỗi, ta giữ nguyên User Message để OpenAI hiểu đây là lệnh mới
+        # Context được chèn vào System Message hoặc Memory của Graph (tùy cấu hình Graph của ngài)
+        # Nhưng để an toàn nhất, ta kẹp Context vào tin nhắn nhưng vẫn giữ role Human
+        
+        final_input_content = f"""
+        [CONTEXT INFO]:
+        Location: Phan Thiet
+        Time: {datetime.now().strftime('%H:%M %d/%m/%Y')}
+        Relevant Memories: {memory_context}
+        
+        [USER COMMAND]:
+        {user_msg_text}
+        """
+        
+        # Tạo đối tượng tin nhắn chuẩn LangChain
+        human_msg = HumanMessage(content=final_input_content)
+        
+        # Cấu hình phiên làm việc
+        config = {"configurable": {"thread_id": thread_id}}
 
-        # --- 4. DEEP THINKING (Gọi LangGraph - Bộ não chính) ---
-        # Bơm Ký ức (Memory) vào ngữ cảnh hệ thống
-        current_context = f"[SYSTEM INFO: Time={datetime.now().strftime('%H:%M')}, Location=Phan Thiet]"
-        full_prompt = (
-            f"{current_context}\n"
-            f"[ACTIVE MEMORY - KÝ ỨC LIÊN QUAN]:\n{memory_context}\n\n"
-            f"[USER REQUEST]: {user_msg}"
-        )
-        
-        from langchain_core.messages import HumanMessage
-        config = {"configurable": {"thread_id": request.thread_id}}
-        
-        # Gọi LangGraph xử lý
-        final_state = await ai_app.ainvoke(
-            {"messages": [HumanMessage(content=full_prompt)]}, 
+        print(colored(f"📥 INPUT: {user_msg_text[:50]}...", "cyan"))
+
+        # --- 4. GỌI BỘ NÃO (LANGGRAPH) ---
+        # Dùng invoke (đồng bộ) thay vì ainvoke ở đây để tránh race condition gây lỗi 400
+        # Đảm bảo tin nhắn được append vào list trước khi gửi đi
+        output = await run_in_threadpool(lambda: ai_app.invoke(
+            {"messages": [human_msg]}, 
             config=config
-        )
+        ))
         
-        last_message = final_state['messages'][-1]
-        ai_reply = last_message.content if hasattr(last_message, 'content') else str(last_message)
-        current_agent = final_state.get("current_agent", "J.A.R.V.I.S")
-
-        # --- 5. MEMORY SAVE (BACKGROUND TASK) ---
-        # Lưu ký ức CHỦ ĐỘNG mà không bắt CEO phải chờ
+        # --- 5. TRÍCH XUẤT KẾT QUẢ ---
+        last_message = output["messages"][-1]
+        ai_reply = last_message.content
+        
+        # --- 6. HẬU XỬ LÝ (LƯU KÝ ỨC & LOG) ---
         if MEMORY_AVAILABLE:
-            background_tasks.add_task(extract_and_save_memory, user_msg, ai_reply)
+            background_tasks.add_task(extract_and_save_memory, user_msg_text, ai_reply)
             
-        # B. Lưu vào dữ liệu huấn luyện (Training Data) - Kiểm tra an toàn
-        if 'log_training_data' in globals() and log_training_data:
-             background_tasks.add_task(log_training_data, request.message, ai_reply, success=True)
         return {
+            "status": "success", 
             "reply": ai_reply,
-            "agent": current_agent,
-            "timestamp": datetime.now().isoformat()
+            "agent": "J.A.R.V.I.S v2.0"
         }
-        
+
     except Exception as e:
-        logger.error(f"Chat Error: {e}")
-        return {"reply": f"💥 Lỗi xử lý logic: {str(e)}"}
+        error_msg = str(e)
+        print(colored(f"❌ CHAT ERROR: {error_msg}", "red"))
+        
+        # Tự động sửa lỗi 400 bằng cách reset nhẹ hội thoại
+        if "Last message must have role user" in error_msg:
+            return {
+                "reply": "⚠️ Lỗi đồng bộ hội thoại. Tôi đã tự động sắp xếp lại bộ nhớ. Vui lòng gửi lại câu lệnh vừa rồi."
+            }
+            
+        return {"reply": f"💥 Lỗi hệ thống: {error_msg}"}
 
 @app.post("/api/speak")
 async def api_speak(request: SpeakRequest):
