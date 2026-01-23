@@ -446,55 +446,91 @@ async def specialized_training_job(role_tag: str):
 
     except Exception as e:
         print(colored(f"❌ Lỗi: {e}", "red"))    
+
 async def morning_briefing_job():
     """
-    PHIÊN BẢN 2.0: Tự động học tin tức + Cộng XP cho [ORCHESTRATOR] + Tạo file báo cáo
+    PHIÊN BẢN 3.0: Tương thích PostgreSQL + Tự nhận thức (Meta-Cognition)
     """
     role_tag = "[ORCHESTRATOR]"
     print(colored(f"\n⏰ [CRON JOB] {role_tag} đang thực hiện quét tin tức buổi sáng...", "cyan", attrs=["bold"]))
     
-    if not AI_AVAILABLE or not LLM_PERPLEXITY:
+    if not AI_AVAILABLE: # or not LLM_PERPLEXITY (Bỏ check Perplexity nếu muốn chạy test với Gemini)
         print(colored("⚠️ Bỏ qua Cron Job vì AI Module chưa sẵn sàng.", "yellow"))
         return
 
     # Lấy chủ đề từ Giáo Trình chung
-    topics = CURRICULUM.get(role_tag, ["Tin tức công nghệ nổi bật", "Thị trường tài chính"])
+    topics = CURRICULUM.get(role_tag, ["Tin tức AI mới nhất", "Thị trường công nghệ 2026"])
     report_buffer = []
     
     for topic in topics:
         try:
             print(colored(f"--> {role_tag} đang đọc: {topic}...", "white"))
-            res = await LLM_PERPLEXITY.ainvoke(topic)
+            
+            # Gọi AI (Ưu tiên Perplexity, Fallback sang Gemini/GPT nếu cần)
+            # Giả sử dùng LLM chính nếu Perplexity chưa cấu hình
+            llm_to_use = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI
+            res = await llm_to_use.ainvoke(topic)
             content = res.content
             
+            # Lưu vào bộ nhớ Vector (RAG)
             if MEMORY_AVAILABLE and vector_db:
                 await run_in_threadpool(lambda: vector_db.add_texts(
                     texts=[content],
                     metadatas=[{"source": "Morning_Briefing", "agent": role_tag, "topic": topic}]
                 ))
             report_buffer.append(f"### {topic}\n{content[:800]}...") 
-        except: pass
+        except Exception as e:
+            print(colored(f"⚠️ Lỗi đọc tin '{topic}': {e}", "yellow"))
 
-    # Tạo báo cáo & Cộng XP
+    # Tạo báo cáo & Cập nhật Database
     if report_buffer:
         today = datetime.now().strftime("%Y-%m-%d")
         report_path = f"projects/Morning_Briefing_{today}.md"
         try:
+            # 1. Lưu file Markdown
             async with aiofiles.open(report_path, "w", encoding="utf-8") as f:
                 await f.write(f"# 🌅 BẢN TIN SÁNG {today}\n\n" + "\n\n".join(report_buffer))
             print(colored(f"✅ [DONE] Đã lưu báo cáo: {report_path}", "green"))
             
-            # Cộng 100 XP
+            # 2. Cập nhật Database (Dùng SQLAlchemy chuẩn)
             with db_manager.get_connection() as conn:
-                c = conn.cursor()
-                row = c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
+                # A. Cộng XP (Lấy cũ + 100)
+                xp_query = text("SELECT xp FROM agent_status WHERE role_tag = :role")
+                row = conn.execute(xp_query, {"role": role_tag}).fetchone()
                 new_xp = (row[0] if row else 0) + 100
-                c.execute("INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated) VALUES (?, ?, ?, ?)", 
-                          (role_tag, new_xp, "Tổng hợp tin tức sáng", datetime.now()))
-                conn.commit()
-        except Exception as e:
-            print(colored(f"❌ Lỗi Job Sáng: {e}", "red"))
+                
+                # B. Cập nhật trạng thái (Dùng DELETE + INSERT để an toàn trên mọi DB)
+                conn.execute(text("DELETE FROM agent_status WHERE role_tag = :role"), {"role": role_tag})
+                
+                insert_query = text("""
+                    INSERT INTO agent_status (role_tag, xp, current_topic, last_updated) 
+                    VALUES (:role, :xp, :topic, :time)
+                """)
+                conn.execute(insert_query, {
+                    "role": role_tag, 
+                    "xp": new_xp, 
+                    "topic": f"Bản tin sáng {today}", 
+                    "time": datetime.now()
+                })
 
+                # C. Ghi nhật ký Tự Nhận Thức (Meta-Cognition Log)
+                # Để hệ thống biết mình đã làm xong việc này
+                log_query = text("""
+                    INSERT INTO learning_logs (event_type, content, agent_name, timestamp)
+                    VALUES (:type, :content, :agent, :time)
+                """)
+                conn.execute(log_query, {
+                    "type": "CREATED",
+                    "content": f"Đã tổng hợp bản tin sáng gồm {len(report_buffer)} chủ đề.",
+                    "agent": role_tag,
+                    "time": datetime.now()
+                })
+                
+                conn.commit()
+                
+        except Exception as e:
+            print(colored(f"❌ Lỗi Job Sáng (DB/File): {e}", "red"))
+            
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
@@ -506,29 +542,26 @@ async def lifespan(app: FastAPI):
         
     # --- SCHEDULER SETUP (QUAN TRỌNG) ---
     scheduler = AsyncIOScheduler()
-    
-    # 1. Briefing sáng (7:00)
     scheduler.add_job(morning_briefing_job, 'cron', hour=7, minute=0)
-    
-    # 2. Lên lịch đào tạo cho từng Agent (Rải rác trong ngày để không nghẽn mạng)
-    # Ví dụ: Mỗi 2-4 tiếng các Agent sẽ tự đi học 1 lần
-    for idx, role in enumerate(CURRICULUM.keys()):
-        # Hack nhỏ: Cộng thêm phút để các job không chạy cùng lúc
-        scheduler.add_job(
-            specialized_training_job, 
-            'interval', 
-            hours=4, 
-            minutes=idx * 5, # Mỗi ông cách nhau 5 phút
-            args=[role]
-        )
-        
     scheduler.start()
-    logger.info(f"⏰ SCHEDULER ACTIVATED: Đã lên lịch đào tạo cho {len(CURRICULUM)} Agents.")
     
+    # --- 3. KÍCH HOẠT "HỌC VIỆN CA ĐÊM" (TÍNH NĂNG MỚI) ---
+    # Thay vì dùng scheduler cứng nhắc, ta chạy Background Task linh hoạt
+    # Để nó tự động học 60p -> nghỉ -> xoay vòng -> tự dừng khi có khách
+    print("🎓 [SYSTEM] Kích hoạt chế độ 'Adaptive Learning' (Học luân phiên)...")
+    learning_task = asyncio.create_task(adaptive_learning_scheduler())
     yield # Server chạy tại đây
     
     # --- SHUTDOWN ---
     scheduler.shutdown()
+    # Hủy tác vụ học tập nhẹ nhàng
+    print("💤 [SYSTEM] Đang giải tán lớp học...")
+    learning_task.cancel()
+    try:
+        await learning_task
+    except asyncio.CancelledError:
+        print("✅ [SYSTEM] Đã dừng chế độ học tập an toàn.")
+        
     logger.info("💤 SYSTEM SHUTDOWN.")
 
 app = FastAPI(
@@ -986,7 +1019,77 @@ async def plan_project_endpoint(
         # Bắt lỗi nếu hàm architect trả về không đúng định dạng hoặc lỗi bất ngờ
         return JSONResponse(status_code=500, content={"status": "ERROR", "message": f"Lỗi hệ thống: {str(e)}"})
 
+# --- CẤU HÌNH HỌC TẬP ---
+LEARNING_QUEUE = ["CODER", "ARTIST", "ENGINEERING", "MARKETING", "LEGAL"]
+CURRENT_LEARNER_INDEX = 0
+IS_BUSY = False  # Trạng thái bận rộn của hệ thống
+LAST_ACTIVITY_TIME = datetime.now()
+
+async def adaptive_learning_scheduler():
+    """
+    Hệ thống lập lịch học tập thông minh.
+    Chạy ngầm (Background Loop) song song với Server.
+    """
+    global CURRENT_LEARNER_INDEX, IS_BUSY
+    
+    print("🎓 [SCHEDULER] Đã kích hoạt Học viện Agent tự động.")
+    
+    while True:
+        # 1. Kiểm tra trạng thái rảnh rỗi (Idle Check)
+        # Nếu không có lệnh mới trong 5 phút -> Coi như rảnh
+        idle_duration = (datetime.now() - LAST_ACTIVITY_TIME).total_seconds()
+        if idle_duration > 300: 
+            IS_BUSY = False
+        else:
+            IS_BUSY = True
+
+        # 2. Logic điều phối
+        if IS_BUSY:
+            print("🚧 [SYSTEM] Hệ thống đang bận dự án. Tạm hoãn việc học.", end="\r")
+            await asyncio.sleep(60) # Chờ 1 phút rồi check lại
+            continue
+
+        # 3. Bắt đầu phiên học 60 phút
+        agent_name = LEARNING_QUEUE[CURRENT_LEARNER_INDEX]
+        print(f"\n📚 [LEARNING] Bắt đầu phiên học 60p cho Agent: {agent_name}")
         
+        # Giả lập quá trình học (Chia nhỏ thành 60 lần 1 phút để dễ ngắt ngang)
+        for minute in range(60):
+            # KIỂM TRA NGẮT NGANG: Nếu CEO đột nhiên ra lệnh
+            if IS_BUSY: 
+                print(f"🛑 [INTERRUPT] Ngừng phiên học của {agent_name} để phục vụ CEO!")
+                break 
+            
+            # Thực hiện hành động học (Ví dụ: Đọc 1 trang tài liệu ngẫu nhiên trong DB)
+            # await self_study(agent_name) 
+            
+            print(f"⏳ {agent_name} đang học... ({minute+1}/60 phút)", end="\r")
+            await asyncio.sleep(60) # Học 1 phút
+
+        # 4. Kết thúc phiên -> Xoay vòng
+        if not IS_BUSY: # Chỉ chuyển người nếu học trọn vẹn (hoặc chấp nhận học dở)
+            print(f"✅ [DONE] {agent_name} đã hoàn thành phiên học.")
+            # Ghi nhật ký tự nhận thức
+            # log_system_activity("LEARNED", f"{agent_name} hoàn thành 60p tự nghiên cứu.", "SCHEDULER")
+            
+            # Chuyển sang người tiếp theo
+            CURRENT_LEARNER_INDEX = (CURRENT_LEARNER_INDEX + 1) % len(LEARNING_QUEUE)
+        
+        # Nghỉ 1 chút trước khi bắt đầu ca sau
+        await asyncio.sleep(10)
+
+# --- TÍCH HỢP VÀO STARTUP ---
+@app.on_event("startup")
+async def start_scheduler():
+    # Chạy loop này ở chế độ nền (không chặn API)
+    asyncio.create_task(adaptive_learning_scheduler())
+
+# --- CẬP NHẬT TRẠNG THÁI KHI CÓ LỆNH ---
+# Trong hàm chat_endpoint, thêm dòng này:
+# global LAST_ACTIVITY_TIME, IS_BUSY
+# LAST_ACTIVITY_TIME = datetime.now()
+# IS_BUSY = True
+
 @app.post("/api/learn")
 async def api_learn(request: LearnRequest, x_api_key: str = Header(None)):
     if x_api_key != ADMIN_SECRET: raise HTTPException(403)
