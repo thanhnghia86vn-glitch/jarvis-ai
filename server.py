@@ -484,53 +484,79 @@ async def morning_briefing_job():
 
     # Tạo báo cáo & Cập nhật Database
     if report_buffer:
-        today = datetime.now().strftime("%Y-%m-%d")
-        report_path = f"projects/Morning_Briefing_{today}.md"
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        full_content = f"# 🌅 BẢN TIN SÁNG {today_str}\n\n" + "\n\n".join(report_buffer)
+        
+        # ID đặc biệt cho báo cáo (VD: BRIEFING_20260125)
+        report_id = f"BRIEFING_{datetime.now().strftime('%Y%m%d')}"
+
         try:
-            # 1. Lưu file Markdown
-            async with aiofiles.open(report_path, "w", encoding="utf-8") as f:
-                await f.write(f"# 🌅 BẢN TIN SÁNG {today}\n\n" + "\n\n".join(report_buffer))
-            print(colored(f"✅ [DONE] Đã lưu báo cáo: {report_path}", "green"))
-            
-            # 2. Cập nhật Database (Dùng SQLAlchemy chuẩn)
             with db_manager.get_connection() as conn:
-                # A. Cộng XP (Lấy cũ + 100)
+                # ---------------------------------------------------------
+                # 1. LƯU BÁO CÁO VÀO DB (QUAN TRỌNG NHẤT ĐỂ KHÔNG MẤT FILE)
+                # ---------------------------------------------------------
+                # Đóng gói nội dung thành format tin nhắn để Dashboard đọc được
+                history_json = json.dumps([{
+                    "type": "ai", 
+                    "data": {"content": full_content}
+                }])
+                
+                # Dùng DELETE + INSERT để đảm bảo nếu chạy lại không bị lỗi trùng ID
+                conn.execute(text("DELETE FROM projects WHERE id = :id"), {"id": report_id})
+                
+                project_query = text("""
+                    INSERT INTO projects (id, name, history, timestamp)
+                    VALUES (:id, :name, :history, :time)
+                """)
+                conn.execute(project_query, {
+                    "id": report_id,
+                    "name": f"Báo cáo sáng {today_str}",
+                    "history": history_json,
+                    "time": datetime.now()
+                })
+                
+                # ---------------------------------------------------------
+                # 2. CẬP NHẬT ĐIỂM XP (GAMIFICATION)
+                # ---------------------------------------------------------
+                # A. Lấy XP hiện tại
                 xp_query = text("SELECT xp FROM agent_status WHERE role_tag = :role")
                 row = conn.execute(xp_query, {"role": role_tag}).fetchone()
                 new_xp = (row[0] if row else 0) + 100
                 
-                # B. Cập nhật trạng thái (Dùng DELETE + INSERT để an toàn trên mọi DB)
+                # B. Cập nhật trạng thái Agent
                 conn.execute(text("DELETE FROM agent_status WHERE role_tag = :role"), {"role": role_tag})
                 
-                insert_query = text("""
+                status_query = text("""
                     INSERT INTO agent_status (role_tag, xp, current_topic, last_updated) 
                     VALUES (:role, :xp, :topic, :time)
                 """)
-                conn.execute(insert_query, {
+                conn.execute(status_query, {
                     "role": role_tag, 
                     "xp": new_xp, 
-                    "topic": f"Bản tin sáng {today}", 
+                    "topic": f"Hoàn thành bản tin {today_str}", 
                     "time": datetime.now()
                 })
 
-                # C. Ghi nhật ký Tự Nhận Thức (Meta-Cognition Log)
-                # Để hệ thống biết mình đã làm xong việc này
+                # ---------------------------------------------------------
+                # 3. GHI NHẬT KÝ TỰ NHẬN THỨC (META-COGNITION)
+                # ---------------------------------------------------------
                 log_query = text("""
                     INSERT INTO learning_logs (event_type, content, agent_name, timestamp)
                     VALUES (:type, :content, :agent, :time)
                 """)
                 conn.execute(log_query, {
                     "type": "CREATED",
-                    "content": f"Đã tổng hợp bản tin sáng gồm {len(report_buffer)} chủ đề.",
+                    "content": f"Đã tổng hợp và lưu trữ vĩnh viễn Bản tin sáng {today_str}.",
                     "agent": role_tag,
                     "time": datetime.now()
                 })
                 
+                # CHỐT ĐƠN (COMMIT) 1 LẦN DUY NHẤT
                 conn.commit()
+                print(colored(f"✅ [DATABASE] Đã lưu báo cáo sáng vào hệ thống vĩnh viễn!", "green"))
                 
         except Exception as e:
-            print(colored(f"❌ Lỗi Job Sáng (DB/File): {e}", "red"))
-            
+            print(colored(f"❌ Lỗi Lưu Trữ Job Sáng: {e}", "red"))
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
@@ -1447,15 +1473,6 @@ def get_latest_audit_report():
         logger.error(f"🚨 [REPORT ERROR]: {str(e)}")
         return f"⚠️ Thưa CEO, không thể truy xuất hồ sơ: {str(e)}."
 
-
-# ==========================================
-# ⚡ WEBSOCKET REAL-TIME (THE NEXUS)
-# ==========================================
-
-
-# ==========================================
-# 🖥️ FRONTEND ROUTES
-# ==========================================
 
 # --- ENTRY POINT (CHẠY SERVER) ---
 
