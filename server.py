@@ -827,36 +827,67 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="⛔ SAI MẬT MÃ QUÂN SỰ (WRONG API KEY)")
     return x_api_key
 
-@app.get("/api/agents/status")
 async def get_agents_status_endpoint():
-    """API trả về Level & XP của Agent cho giao diện Admin"""
+    """API trả về Level & XP THẬT của Agent"""
     try:
-        with db_manager.get_connection() as conn:
-            # Lấy dữ liệu và tính Level
-            df = pd.read_sql_query("SELECT *, (xp / 100) + 1 as level FROM agent_status ORDER BY xp DESC", conn)
-            # Chuyển đổi timestamp thành chuỗi để JSON không lỗi
-            df['last_updated'] = df['last_updated'].astype(str)
-            return df.to_dict(orient="records")
+        # Sử dụng Engine của SQLAlchemy để an toàn hơn với Thread
+        with db_manager.engine.connect() as conn:
+            # Truy vấn trực tiếp, không qua Pandas để giảm độ trễ và lỗi thư viện
+            result = conn.execute(text("SELECT role_tag, xp, current_topic, last_updated FROM agent_status ORDER BY xp DESC"))
+            
+            agents = []
+            for row in result:
+                # Tính Level dựa trên XP thật
+                xp = row[1]
+                level = int(xp / 100) + 1
+                
+                agents.append({
+                    "role_tag": row[0],      # Tên Agent (VD: [CODER])
+                    "xp": xp,                # Điểm kinh nghiệm thật
+                    "level": level,          # Cấp độ
+                    "current_topic": row[2] or "Đang chờ lệnh",
+                    "last_updated": str(row[3]) # Chuyển ngày giờ thành chuỗi
+                })
+            
+            return agents
+            
     except Exception as e:
         logger.error(f"Agent Status Error: {e}")
+        # Nếu lỗi DB, trả về rỗng để Dashboard biết đường xử lý chứ không crash
         return []
-
+    
 @app.get("/api/stats")
 async def get_system_stats():
-    """Thống kê tài chính"""
+    """Thống kê tài chính THỰC TẾ dựa trên hoạt động của Agent"""
     try:
         with db_manager.get_connection() as conn:
-            prod_count = conn.execute("SELECT count(*) FROM products").fetchone()[0]
-            income = conn.execute("SELECT SUM(amount) FROM finance_logs WHERE type='income'").fetchone()[0] or 0
-            expense = conn.execute("SELECT SUM(amount) FROM finance_logs WHERE type='expense'").fetchone()[0] or 0
+            # 1. Đếm sản phẩm thật
+            prod_count = conn.execute(text("SELECT count(*) FROM products")).fetchone()[0]
+            
+            # 2. Tính doanh thu thật (từ bảng finance)
+            income = conn.execute(text("SELECT SUM(amount) FROM finance_logs WHERE type='income'")).fetchone()[0] or 0.0
+            
+            # 3. [SỬA ĐỔI QUAN TRỌNG] TÍNH CHI PHÍ DỰA TRÊN CÔNG SỨC THẬT (XP)
+            # Thay vì chỉ lấy từ finance_logs (có thể đang trống), ta tính dựa trên tổng XP
+            # Giả định: 1 XP tốn khoảng $0.0005 (DeepSeek/OpenAI cost)
+            total_xp_query = conn.execute(text("SELECT SUM(xp) FROM agent_status"))
+            total_xp = total_xp_query.fetchone()[0] or 0
+            
+            # Chi phí vận hành = Chi phí cố định + (Tổng XP * Hệ số giá)
+            fixed_cost = conn.execute(text("SELECT SUM(amount) FROM finance_logs WHERE type='expense'")).fetchone()[0] or 0.0
+            variable_cost = total_xp * 0.0005 
+            
+            total_expense = fixed_cost + variable_cost
+
             return {
                 "products": prod_count,
-                "revenue": income,
-                "expense": expense,
-                "balance": income - expense
+                "revenue": round(income, 2),
+                "expense": round(total_expense, 4), # Hiển thị 4 số lẻ để thấy tiền nhảy từng chút
+                "balance": round(income - total_expense, 4)
             }
-    except:
-        return {"products": 0, "revenue": 0, "expense": 0}
+    except Exception as e:
+        logger.error(f"Stats Error: {e}")
+        return {"products": 0, "revenue": 0, "expense": 0, "balance": 0}
 
 @app.get("/api/products")
 async def get_products_api():
