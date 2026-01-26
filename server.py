@@ -1,6 +1,5 @@
 import glob
 import os
-
 import pandas as pd
 import sqlite3
 import uuid
@@ -41,6 +40,7 @@ DB_PATH = "ai_corp_projects.db"
 AI_AVAILABLE = False
 MEMORY_AVAILABLE = False
 VOICE_AVAILABLE = False
+SERVER_READY = False
 
 try:
     from main import (
@@ -58,6 +58,7 @@ try:
     ) 
 
     AI_AVAILABLE = True
+    SERVER_READY = True
     logger.info("✅ CORE AI MODULES: LOADED")
 except Exception as e:
     # --- BẮT LỖI VÀ GHI LẠI ---
@@ -557,6 +558,121 @@ async def morning_briefing_job():
                 
         except Exception as e:
             print(colored(f"❌ Lỗi Lưu Trữ Job Sáng: {e}", "red"))
+
+# ==========================================
+# 3. PIPELINE DỰ ÁN LỚN (ĐÃ TỐI ƯU & HỢP NHẤT)
+# ==========================================
+
+async def run_architect_phase(project_request: str, thread_id: str):
+    """
+    Bước 1: Vẽ sơ đồ và kế hoạch thi công.
+    Output: File BLUEPRINT.md chứa danh sách các bước (Steps).
+    """
+    print(colored(f"📐 [ARCHITECT] Đang phác thảo dự án: {project_request}", "cyan"))
+    os.makedirs("projects", exist_ok=True)
+    plan_path = f"projects/{thread_id}_BLUEPRINT.md"
+    
+    try:
+        if not SERVER_READY: return "Simulation Plan", plan_path
+
+        architect_prompt = (
+            f"Bạn là Chief Software Architect (CSA). Có một yêu cầu dự án: '{project_request}'.\n"
+            "Hãy lập một BẢN THIẾT KẾ KỸ THUẬT (Technical Blueprint) chi tiết dạng Markdown:\n\n"
+            "1. [OVERVIEW]: Tóm tắt mục tiêu dự án.\n"
+            "2. [MODULES]: Danh sách các chức năng chính.\n"
+            "3. [DATABASE]: Sơ đồ bảng (Table Schema) chi tiết.\n"
+            "4. [TECH STACK]: Công nghệ sử dụng.\n"
+            "5. [EXECUTION PLAN] (QUAN TRỌNG): Hãy liệt kê lộ trình code cụ thể từng bước.\n"
+            "   - Bắt buộc dùng gạch đầu dòng (-) cho mỗi bước.\n"
+            "   - Ví dụ:\n"
+            "   - Tạo môi trường ảo và file requirements.txt\n"
+            "   - Thiết kế database models trong models.py\n"
+            "   - Viết API đăng nhập\n"
+        )
+        
+        plan_res = await run_in_threadpool(lambda: LLM_SUPERVISOR.invoke(architect_prompt))
+        content = plan_res.content
+        
+        async with aiofiles.open(plan_path, "w", encoding="utf-8") as f:
+            await f.write(content)
+            
+        print(colored(f"✅ [ARCHITECT DONE] Bản vẽ đã xong: {plan_path}", "green"))
+        return content, plan_path
+
+    except Exception as e:
+        print(colored(f"❌ Lỗi Architect: {e}", "red"))
+        return None, None
+
+async def run_coding_phase(blueprint_content: str, thread_id: str):
+    """
+    Bước 2: Đọc bản vẽ -> Code từng phần -> Ghi log.
+    """
+    print(colored(f"🏗️ [EXECUTOR] Bắt đầu thi công dự án {thread_id}...", "magenta"))
+    log_file = f"projects/{thread_id}_coding_log.txt"
+    
+    raw_lines = blueprint_content.split('\n')
+    steps = []
+    is_in_plan = False
+    
+    # Parsing thông minh để tìm EXECUTION PLAN
+    for line in raw_lines:
+        if "EXECUTION PLAN" in line.upper(): is_in_plan = True
+        if is_in_plan and (line.strip().startswith('-') or line.strip().startswith('*')):
+            step_clean = line.strip().lstrip('-* ').strip()
+            if len(step_clean) > 5:
+                steps.append(step_clean)
+
+    if not steps:
+        print(colored("⚠️ Không tìm thấy bước code nào trong Blueprint. Dừng.", "yellow"))
+        return
+
+    async with aiofiles.open(log_file, "w", encoding="utf-8") as f:
+        await f.write(f"=== BẮT ĐẦU DỰ ÁN {thread_id} ===\n\n")
+
+    for idx, step in enumerate(steps):
+        print(colored(f"⏳ [STEP {idx+1}/{len(steps)}]: {step}", "yellow"))
+        
+        step_prompt = (
+            f"DỰ ÁN: {thread_id}\n"
+            f"NHIỆM VỤ CỤ THỂ: {step}\n"
+            "Yêu cầu: Viết code hoàn chỉnh cho nhiệm vụ này. Không giải thích dài dòng."
+        )
+        
+        try:
+            if SERVER_READY:
+                state_res = await ai_app.ainvoke(
+                    {"messages": [HumanMessage(content=step_prompt)]},
+                    config={"configurable": {"thread_id": thread_id}}
+                )
+                ai_output = state_res['messages'][-1].content
+            else:
+                ai_output = f"[SIMULATION] Coding step {idx+1}..."
+                await asyncio.sleep(1)
+
+            async with aiofiles.open(log_file, "a", encoding="utf-8") as f:
+                await f.write(f"\n\n{'='*30}\n### BƯỚC {idx+1}: {step}\n{'='*30}\n{ai_output}\n")
+            
+            await asyncio.sleep(2) # Nghỉ để tránh Rate Limit
+            
+        except Exception as e:
+            print(colored(f"❌ Lỗi Step {idx+1}: {e}", "red"))
+
+    print(colored(f"✅ [PROJECT COMPLETE] Dự án {thread_id} đã hoàn thành 100%!", "green"))
+
+async def full_project_pipeline(user_request: str, thread_id: str):
+    """
+    Quy trình khép kín: Architect -> Blueprint -> Executor -> Code.
+    """
+    blueprint, path = await run_architect_phase(user_request, thread_id)
+    if blueprint:
+        await run_coding_phase(blueprint, thread_id)
+    else:
+        print("❌ Dự án bị hủy do lỗi thiết kế.")
+
+
+# ==========================================
+# 4. APP & ROUTES
+# ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
@@ -1029,9 +1145,8 @@ async def plan_project_endpoint(
     pid = request.thread_id or f"proj_{int(time.time())}"
     
     try:
-        # Gọi hàm architect (Chờ kết quả luôn để trả về cho CEO xem ngay)
-        # Hàm architect_planner đã được tối ưu ở bước trước
-        plan_content, plan_path = await architect_planner(request.message, pid)
+        # Gọi hàm architect MỚI (run_architect_phase)
+        plan_content, plan_path = await run_architect_phase(request.message, pid)
         
         return {
             "status": "PLAN_CREATED",
@@ -1254,162 +1369,6 @@ async def websocket_nexus(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WS Error: {e}")
         manager.disconnect(websocket)
-
-# ==========================================
-# 7. CHẠY DỰ ÁN LỚN (BACKGROUND)
-# ==========================================
-async def heavy_project_executor(project_request: str, thread_id: str):
-    """
-    Hàm xử lý dự án lớn (ERP, CRM) chạy nền hàng giờ đồng hồ.
-    """
-    import asyncio
-    print(colored(f"🏗️ [HEAVY PROJECT] Bắt đầu: {project_request}", "magenta", attrs=["bold"]))
-    
-    log_file = f"projects/{thread_id}_log.txt"
-    blueprint_path = f"projects/{thread_id}_BLUEPRINT.md"
-
-    try:
-        if not LLM_SUPERVISOR:
-             raise Exception("LLM_SUPERVISOR chưa được khởi tạo. Kiểm tra lại main.py")
-        # Giai đoạn 1: Lập kế hoạch (Dùng Supervisor)
-        plan_prompt = (
-            f"Bạn là Kiến trúc sư phần mềm (Architect). Yêu cầu dự án: '{project_request}'.\n"
-            "Hãy chia nhỏ dự án này thành các bước kỹ thuật (Coding Steps) cụ thể.\n"
-            "QUAN TRỌNG: Chỉ trả về danh sách các bước, bắt đầu bằng dấu gạch ngang (-).\n"
-            "Ví dụ:\n- Tạo file models.py\n- Viết API login"
-        )
-        plan_res = await run_in_threadpool(lambda: LLM_SUPERVISOR.invoke(plan_prompt))
-        raw_steps = plan_res.content.split('\n')
-        steps = []
-        for s in raw_steps:
-            s = s.strip()
-            # Lọc các dòng là bullet point hoặc số thứ tự
-            if s and (s.startswith('-') or s.startswith('*') or (s[0].isdigit() and s[1] in ['.', ')'])):
-                steps.append(s)
-        
-        # Ghi log kế hoạch (Dùng aiofiles để không chặn Server)
-        async with aiofiles.open(log_file, "w", encoding="utf-8") as f:
-            await f.write(f"=== PROJECT PLAN: {project_request} ===\n{plan_res.content}\n{'='*50}\n")
-            
-        if not steps:
-            print(colored("⚠️ Không tìm thấy bước nào trong kế hoạch. Dừng.", "red"))
-            return
-        # Giai đoạn 2: Code từng phần (Loop)
-        for idx, step in enumerate(steps):
-            print(colored(f"⏳ Doing Step {idx+1}/{len(steps)}: {step}", "yellow"))
-            
-            # Prompt nhắc lại ngữ cảnh (Context Injection)
-            # Giúp AI nhớ nó đang làm dự án gì, tránh lạc đề
-            step_input = (
-                f"[DỰ ÁN TỔNG THỂ]: {project_request}\n"
-                f"[NHIỆM VỤ HIỆN TẠI]: Bước {idx+1}: {step}.\n"
-                "Hãy viết code hoàn chỉnh và chi tiết cho nhiệm vụ này."
-            )
-            
-            # Gọi AI Brain (LangGraph đã là async nên dùng await trực tiếp)
-            state_res = await ai_app.ainvoke(
-                {"messages": [HumanMessage(content=step_input)]},
-                config={"configurable": {"thread_id": thread_id}}
-            )
-            
-            ai_output = state_res['messages'][-1].content
-            
-            # Ghi log kết quả (Async Write)
-            async with aiofiles.open(log_file, "a", encoding="utf-8") as f:
-                await f.write(f"\n\n--- KẾT QUẢ BƯỚC {idx+1}: {step} ---\n{ai_output}\n")
-            
-            # Nghỉ 2 giây để tránh spam API
-            await asyncio.sleep(2)
-
-        print(colored(f"✅ [DONE] Dự án {thread_id} đã hoàn tất!", "green"))
-
-    except Exception as e:
-        print(colored(f"❌ [FAILED] Dự án bị lỗi: {e}", "red"))
-        # Ghi lỗi vào file log (Async Write)
-        try:
-            async with aiofiles.open(log_file, "a", encoding="utf-8") as f:
-                await f.write(f"\n❌ SYSTEM ERROR: {str(e)}")
-        except: pass
-
-async def architect_planner(project_request: str, thread_id: str):
-    """
-    KẾN TRÚC SƯ TRƯỞNG: Lập bản vẽ kỹ thuật & Lộ trình thi công.
-    (Phiên bản Async + Tối ưu Prompt cho Executor)
-    """
-    print(colored(f"📐 [ARCHITECT] Đang phác thảo dự án: {project_request}", "cyan"))
-    
-    # Tạo đường dẫn file trước
-    plan_path = f"projects/{thread_id}_BLUEPRINT.md"
-
-    try:
-        if not LLM_SUPERVISOR:
-             raise Exception("LLM_SUPERVISOR chưa được khởi tạo (AI Offline).")
-
-        # --- NÂNG CẤP PROMPT ---
-        # Thêm mục số 6 để tạo thuận lợi cho 'heavy_project_executor' đọc task
-        architect_prompt = (
-            f"Bạn là Chief Software Architect (CSA). Có một yêu cầu dự án: '{project_request}'.\n"
-            "Hãy lập một BẢN THIẾT KẾ KỸ THUẬT (Technical Blueprint) chi tiết dạng Markdown:\n\n"
-            "1. [OVERVIEW]: Tóm tắt mục tiêu dự án.\n"
-            "2. [MODULES]: Danh sách các chức năng chính.\n"
-            "3. [DATABASE]: Sơ đồ bảng (Table Schema) chi tiết.\n"
-            "4. [TECH STACK]: Công nghệ sử dụng (Frontend/Backend/Libs).\n"
-            "5. [FILE STRUCTURE]: Cấu trúc thư mục dự kiến.\n"
-            "6. [EXECUTION PLAN] (QUAN TRỌNG): Hãy liệt kê lộ trình code cụ thể từng bước.\n"
-            "   - Bắt buộc dùng gạch đầu dòng (-) cho mỗi bước.\n"
-            "   - Ví dụ:\n"
-            "   - Tạo môi trường ảo và file requirements.txt\n"
-            "   - Thiết kế database models trong models.py\n"
-            "   - Viết API đăng nhập\n"
-        )
-        
-        # Gọi AI (Chạy trong Threadpool để không chặn Server)
-        plan_res = await run_in_threadpool(lambda: LLM_SUPERVISOR.invoke(architect_prompt))
-        
-        # Ghi file bất đồng bộ (Non-blocking I/O)
-        async with aiofiles.open(plan_path, "w", encoding="utf-8") as f:
-            await f.write(plan_res.content)
-            
-        print(colored(f"✅ [PLAN READY] Bản vẽ đã xong: {plan_path}", "green"))
-        
-        # Trả về nội dung để hiển thị ngay lên Dashboard
-        return plan_res.content, plan_path
-
-    except Exception as e:
-        error_msg = f"Lỗi lập kế hoạch: {str(e)}"
-        print(colored(f"❌ {error_msg}", "red"))
-        
-        # Ghi file lỗi để debug
-        try:
-            async with aiofiles.open(plan_path, "w", encoding="utf-8") as f:
-                await f.write(f"# ⚠️ PROJECT ERROR\n{error_msg}")
-        except: pass
-        
-        return error_msg, plan_path
-    
-# 2. API Endpoint để kích hoạt
-@app.post("/api/heavy_project")
-async def start_heavy_project(
-    request: ChatRequest, 
-    background_tasks: BackgroundTasks,
-    api_key: str = Depends(verify_api_key) # <--- THÊM DÒNG NÀY ĐỂ BẢO VỆ
-):
-    """
-    API để CEO kích hoạt chế độ làm dự án lớn (Yêu cầu API Key).
-    """
-    # Tạo Thread ID riêng cho dự án nếu chưa có
-    pid = request.thread_id or f"proj_{int(time.time())}"
-    
-    # Đẩy vào chạy nền (Fire and Forget)
-    # Lưu ý: heavy_project_executor phải là hàm async (đã sửa ở bước trước)
-    background_tasks.add_task(heavy_project_executor, request.message, pid)
-    
-    return {
-        "status": "PROCESSING",
-        "project_id": pid,
-        "message": "Đã tiếp nhận dự án. Hệ thống đang xử lý ngầm...",
-        "log_path": f"projects/{pid}_log.txt"
-    }
 
 # ==========================================
 # 🚀 SYSTEM ROUTES
