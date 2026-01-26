@@ -75,8 +75,8 @@ try:
         vector_db,              #Database Vector (Cho Cronjob)
         LLM_GPT4,               # Model GPT-4
         LLM_PERPLEXITY,         # Model Search
-        LLM_GEMINI,             # Model Google
-        LLM_SUPERVISOR,          # [MỚI] Tổng quản để chia việc dự án lớn
+        LLM_GEMINI_LOGIC,             # Model Google
+        LLM_GEMINI_VISION,          # [MỚI] Tổng quản để chia việc dự án lớn
         CODER_PRIMARY
     
     ) 
@@ -96,8 +96,8 @@ except Exception as e:
     vector_db = None
     LLM_GPT4 = None
     LLM_PERPLEXITY = None
-    LLM_GEMINI = None
-    LLM_SUPERVISOR = None
+    LLM_GEMINI_LOGIC = None
+    LLM_GEMINI_VISION = None
     CODER_PRIMARY = None
 
 # --- IMPORT MODULES NỘI BỘ KHÁC ---
@@ -392,7 +392,7 @@ async def specialized_training_job(role_tag: str):
             mode = "REVIEW (Ôn Tập Kế Thừa)"
             print(colored(f"--> Chế độ: {mode} - Không tốn phí tìm kiếm.", "yellow"))
             
-            if LLM_GEMINI:
+            if LLM_GEMINI_LOGIC:
                 # Prompt Ôn tập: Dựa trên cái cũ để sinh ra góc nhìn mới
                 review_prompt = f"""
                 Bạn là Chuyên gia {role_tag}.
@@ -410,7 +410,7 @@ async def specialized_training_job(role_tag: str):
                 Mục tiêu: Củng cố bộ nhớ mà không cần nạp thêm dữ liệu thô.
                 """
                 try:
-                    res = await LLM_GEMINI.ainvoke(review_prompt)
+                    res = await LLM_GEMINI_LOGIC.ainvoke(review_prompt)
                     final_output = res.content
                     xp_earned = 20 # Điểm ôn tập thấp hơn điểm nghiên cứu mới
                 except:
@@ -432,10 +432,10 @@ async def specialized_training_job(role_tag: str):
                     raw_data = res.content
                 except: pass
             
-            if raw_data and LLM_GEMINI:
+            if raw_data and LLM_GEMINI_LOGIC:
                 analyze_prompt = f"Phân tích chuyên sâu về {current_topic} dựa trên: {raw_data[:4000]}"
                 try:
-                    res = await LLM_GEMINI.ainvoke(analyze_prompt)
+                    res = await LLM_GEMINI_LOGIC.ainvoke(analyze_prompt)
                     final_output = res.content
                     xp_earned = 50 # Điểm cao vì học cái mới
                 except: final_output = raw_data
@@ -493,7 +493,7 @@ async def morning_briefing_job():
             
             # Gọi AI (Ưu tiên Perplexity, Fallback sang Gemini/GPT nếu cần)
             # Giả sử dùng LLM chính nếu Perplexity chưa cấu hình
-            llm_to_use = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI
+            llm_to_use = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI_LOGIC
             res = await llm_to_use.ainvoke(topic)
             content = res.content
             
@@ -614,7 +614,7 @@ async def run_architect_phase(project_request: str, thread_id: str):
             "   - Viết API đăng nhập\n"
         )
         
-        plan_res = await run_in_threadpool(lambda: LLM_SUPERVISOR.invoke(architect_prompt))
+        plan_res = await run_in_threadpool(lambda: LLM_GEMINI_VISION.invoke(architect_prompt))
         content = plan_res.content
         
         async with aiofiles.open(plan_path, "w", encoding="utf-8") as f:
@@ -1113,9 +1113,9 @@ async def voice_chat(file: UploadFile = File(...), api_key: str = Depends(verify
         agent_name = "J.A.R.V.I.S"
 
         # A. Fast Track (Gemini)
-        if any(k in user_text.lower() for k in fast_keywords) and LLM_GEMINI:
+        if any(k in user_text.lower() for k in fast_keywords) and LLM_GEMINI_LOGIC:
              try:
-                 ai_res = await LLM_GEMINI.ainvoke(f"Ký ức: {memory_context}. Hỏi: {user_text}")
+                 ai_res = await LLM_GEMINI_LOGIC.ainvoke(f"Ký ức: {memory_context}. Hỏi: {user_text}")
                  ai_text = ai_res.content
                  agent_name = "Gemini Voice"
              except: pass
@@ -1357,11 +1357,11 @@ async def websocket_nexus(websocket: WebSocket):
             fast_keywords = ["bao nhiêu ngày", "tết", "thứ mấy", "ngày mấy", "mấy giờ", "thời tiết", "giá"]
             is_simple = any(k in data.lower() for k in fast_keywords) and not any(k in data.lower() for k in ["vẽ", "code", "lập trình"])
 
-            if is_simple and LLM_GEMINI:
+            if is_simple and LLM_GEMINI_LOGIC:
                 print(colored("🚀 Kích hoạt Fast Track (Real-time Context)...", "yellow"))
                 try:
                     # Gọi Gemini trả lời nhanh câu hỏi ngày giờ
-                    ai_msg = await LLM_GEMINI.ainvoke(full_prompt)
+                    ai_msg = await LLM_GEMINI_LOGIC.ainvoke(full_prompt)
                     reply_content = ai_msg.content
                     active_agent = "J.A.R.V.I.S"
                 except: pass
