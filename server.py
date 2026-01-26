@@ -34,8 +34,32 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("JARVIS_BACKEND")
 # --- CẤU HÌNH HỆ THỐNG ---
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "ai_corp_secret_123")
-UPLOAD_DIR = "uploads"
-DB_PATH = "ai_corp_projects.db"
+
+# 1. Xác định đường dẫn gốc (Root Path)
+# Kiểm tra xem thư mục /var/data (Mount path trên Render) có tồn tại không
+RENDER_DISK_PATH = "/var/data"
+
+if os.path.exists(RENDER_DISK_PATH):
+    # Nếu tìm thấy ổ cứng Cloud -> Lưu hết vào đó
+    BASE_DATA_DIR = RENDER_DISK_PATH
+    print(colored(f"💽 [STORAGE] Đã kết nối ổ cứng Cloud: {BASE_DATA_DIR}", "green", attrs=["bold"]))
+else:
+    # Nếu không thấy -> Đang chạy Local -> Lưu tại chỗ
+    BASE_DATA_DIR = "."
+    print(colored("💻 [STORAGE] Đang chạy chế độ Local (Lưu trên máy tính)", "yellow"))
+
+# 2. Định nghĩa các đường dẫn quan trọng dựa trên Root Path
+# Tất cả dữ liệu quan trọng phải nằm trong BASE_DATA_DIR
+UPLOAD_DIR = os.path.join(BASE_DATA_DIR, "uploads")
+PROJECTS_DIR = os.path.join(BASE_DATA_DIR, "projects")
+DB_PATH = os.path.join(BASE_DATA_DIR, "ai_corp_projects.db")
+VECTOR_DB_PATH = os.path.join(BASE_DATA_DIR, "db_knowledge") # Folder chứa vector database
+
+# 3. Biến môi trường Database (Cập nhật lại cho SQLite nếu dùng Disk)
+# Nếu không dùng PostgreSQL mà dùng SQLite trên Disk thì set lại url
+if not os.environ.get("DATABASE_URL") and os.path.exists(RENDER_DISK_PATH):
+    # Ép dùng SQLite trên ổ cứng Cloud để bền vững
+    os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
 
 AI_AVAILABLE = False
 MEMORY_AVAILABLE = False
@@ -675,7 +699,19 @@ async def full_project_pipeline(user_request: str, thread_id: str):
 # ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- STARTUP ---
+    directories_to_create = [
+        UPLOAD_DIR,      # /var/data/uploads
+        PROJECTS_DIR,    # /var/data/projects
+        "static",        # ./static (Code)
+        "templates"      # ./templates (Code)
+    ]
+    
+    for d in directories_to_create:
+        if not os.path.exists(d): 
+            os.makedirs(d)
+            print(f"📁 Đã tạo thư mục: {d}")
+
+    # 2. Khởi tạo Database
     db_manager.init_db()
     
     # Tạo thư mục cần thiết
