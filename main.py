@@ -104,15 +104,15 @@ vector_db = Chroma(persist_directory=DB_PATH, embedding_function=embeddings)
 # 1. CODER_PRIMARY (Cấp 1 - DeepSeek V3)
 # Đây là "Tiền đạo" chủ lực
 try:
-    CODER_PRIMARY = ChatOpenAI(
+    LLM_DEEPSEEK = ChatOpenAI(
         model="deepseek-chat", 
         api_key=os.environ.get("DEEPSEEK_API_KEY"), 
         base_url="https://api.deepseek.com",
         temperature=0,
         request_timeout=30 # Timeout nhanh để fallback nếu lag
     )
-    print("✅ CODER_PRIMARY (DeepSeek): Ready.")
-except: CODER_PRIMARY = None
+    print("✅ LLM_DEEPSEEK (DeepSeek): Ready: Coder & Supervisor (Economy Mode).")
+except: LLM_DEEPSEEK = None
 
 # 2. LLM_GPT4 (Cấp 2 - Dự phòng 1 & Xử lý chung)
 try:
@@ -138,37 +138,68 @@ except: LLM_CLAUDE = None
 
 # 4. LLM_GEMINI (Supervisor - Tổng quản)
 try:
-    LLM_GEMINI = ChatGoogleGenerativeAI(
+    # A. Bản Logic (Xử lý văn bản dài cho Thư ký)
+    LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
         model="gemini-3-pro-preview", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.3
     )
-    LLM_SUPERVISOR = LLM_GEMINI # Alias mới để dùng trong logic Supervisor
-    print("✅ LLM_GEMINI (Supervisor): Ready.")
+    
+    # B. Bản Vision (Nano Banana - Chuyên xử lý ảnh cho Artist)
+    LLM_GEMINI_VISION = ChatGoogleGenerativeAI(
+        model="gemini-3-pro-image-preview", 
+        google_api_key=os.environ.get("GOOGLE_API_KEY"),
+        temperature=0.4
+    )
+    print("✅ [GEMINI 3 PRO] Ready: Logic & Vision (Nano Banana).")
 except: 
-    LLM_GEMINI = None
-    LLM_SUPERVISOR = None
+    LLM_GEMINI_LOGIC = None
+    LLM_GEMINI_VISION = None
 
 # 5. CÁC CÔNG CỤ KHÁC (Giữ nguyên)
-LLM_PERPLEXITY = ChatOpenAI(
-    model="sonar-pro",
-    temperature=0,
-    openai_api_key=os.getenv("PERPLEXITY_API_KEY"),
-    base_url="https://api.perplexity.ai"
-)
-
-# Artist
 try:
-    ARTIST_PRIMARY = ChatOpenAI(model="gpt-4o", api_key=os.environ.get("OPENAI_API_KEY"))
-    ARTIST_BACKUP = LLM_GEMINI
-except: ARTIST_PRIMARY = None
+    LLM_PERPLEXITY = ChatOpenAI(
+        model="sonar-pro",
+        temperature=0,
+        api_key=os.getenv("PERPLEXITY_API_KEY"),
+        base_url="https://api.perplexity.ai"
+    )
+    print("✅ [PERPLEXITY] Ready: Live Search.")
+except: LLM_PERPLEXITY = None
+# Artist
+# =========================================================
+# 3. PHÂN BỔ QUYỀN LỰC (ROLE MAPPING)
+# =========================================================
+# Đây là nơi quyết định ai làm việc gì.
 
-llm = ChatOpenAI(
-    model="gpt-4-turbo",
-    max_retries=2,       # Chỉ thử lại 2 lần thay vì mặc định
-    timeout=30,          # Chờ tối đa 30 giây
-    temperature=0
-)
+# Coder & Architect -> DeepSeek (Tiết kiệm 95% chi phí)
+CODER_PRIMARY = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
+ARCHITECT_PRIMARY = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
+
+# Supervisor (Điều phối) -> DeepSeek (Rất quan trọng để giảm bill)
+SUPERVISOR_PRIMARY = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4 
+
+# Artist Brain -> Dùng Gemini Vision (Nano Banana) để hiểu ảnh
+ARTIST_BRAIN = LLM_GEMINI_VISION if LLM_GEMINI_VISION else LLM_GPT4
+
+# Admin/Secretary -> Dùng Gemini Logic (Context lớn)
+ADMIN_PRIMARY = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
+
+# Creative -> Claude
+CREATIVE_PRIMARY = LLM_CLAUDE if LLM_CLAUDE else LLM_GPT4
+
+# Logic/Finance/Legal -> GPT-4o (Cần độ chính xác cao nhất)
+LOGIC_PRIMARY = LLM_GPT4
+
+# Researcher -> Perplexity
+RESEARCHER_PRIMARY = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI_LOGIC
+
+# llm = ChatOpenAI(
+#     model="gpt-4-turbo",
+#     max_retries=2,       # Chỉ thử lại 2 lần thay vì mặc định
+#     timeout=30,          # Chờ tối đa 30 giây
+#     temperature=0
+# )
 
 CODER_BACKUP = LLM_CLAUDE
 
@@ -265,8 +296,8 @@ def extract_vision_from_pdf(pdf_path):
             
             # Gọi Gemini Vision (Truyền trực tiếp đối tượng PIL Image)
             # Lưu ý: Cần đảm bảo LLM_GEMINI đã được khởi tạo thành công ở đầu file
-            if LLM_GEMINI:
-                response = LLM_GEMINI.invoke([
+            if LLM_GEMINI_LOGIC:
+                response = LLM_GEMINI_LOGIC.invoke([
                     HumanMessage(content=[
                         {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": img} # LangChain hỗ trợ truyền ảnh trực tiếp
@@ -1477,7 +1508,7 @@ def publisher_node(state):
         "\nThứ tự: 1. Tổng quan -> 2. Thị trường -> 3. Tài chính -> 4. Kỹ thuật -> 5. Phụ lục hình ảnh."
     )
 
-    response = LLM_GEMINI.invoke([
+    response = LLM_GEMINI_LOGIC.invoke([
         SystemMessage(content=publish_prompt),
         HumanMessage(content=f"Dữ liệu gom được:\n{research_report}\n{investment_plan}\n{technical_specs}\n{creative_content}")
     ])
@@ -1807,7 +1838,7 @@ def secretary_node(state):
     )
 
     try:
-        response = LLM_GEMINI.invoke([SystemMessage(content=prompt)])
+        response = LLM_GEMINI_VISION.invoke([SystemMessage(content=prompt)])
         
         # Ghi log (Vẫn giữ chức năng lưu trữ ngầm)
         with open(f"Chat_Log_{int(time.time())}.txt", "w", encoding="utf-8") as f:
@@ -1919,7 +1950,7 @@ def artist_node(state):
 
     try:
         # Gọi GPT-4 để lấy prompt xịn
-        analysis_response = LLM_GPT4.invoke([SystemMessage(content="JSON mode."), HumanMessage(content=analysis_prompt)])
+        analysis_response = LLM_GEMINI_VISION.invoke([SystemMessage(content="JSON mode."), HumanMessage(content=analysis_prompt)])
         
         # Làm sạch chuỗi JSON (đề phòng GPT thêm markdown)
         json_str = analysis_response.content.replace("```json", "").replace("```", "").strip()
