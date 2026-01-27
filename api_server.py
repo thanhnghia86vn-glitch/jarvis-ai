@@ -996,13 +996,11 @@ async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks)
 
         print(colored(f"📥 INPUT: {user_msg_text[:50]}...", "cyan"))
 
-        # --- 4. GỌI BỘ NÃO (LANGGRAPH) ---
-        # Dùng invoke (đồng bộ) thay vì ainvoke ở đây để tránh race condition gây lỗi 400
-        # Đảm bảo tin nhắn được append vào list trước khi gửi đi
-        output = await run_in_threadpool(lambda: ai_app.invoke(
+        # Phải dùng ainvoke (Async Invoke) vì các Node trong main.py là async def
+        output = await ai_app.ainvoke(
             {"messages": [human_msg]}, 
             config=config
-        ))
+        )
         
         # --- 5. TRÍCH XUẤT KẾT QUẢ ---
         last_message = output["messages"][-1]
