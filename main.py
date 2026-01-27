@@ -21,7 +21,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
-
+import sqlite3
 from langchain_community.utilities.dalle_image_generator import DallEAPIWrapper
 from langchain_chroma import Chroma
 from langgraph.graph import StateGraph, END
@@ -727,6 +727,42 @@ def learn_knowledge(text: str):
     except Exception as e:
         return f"❌ Lỗi khi ghi nhớ kiến thức: {e}"
 
+def log_work_to_db(agent, task, result, tool="GPT-4"):
+    """Hàm ghi chép công việc vào Sổ Cái"""
+    try:
+        # Đường dẫn DB phải khớp với api_server.py
+        # Trên Cloud là /var/data/ai_corp_projects.db
+        db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+        
+        # Tính tiền (Ước lượng $0.001 cho mỗi 1000 ký tự)
+        cost = len(result) * 0.00001 
+        if "deepseek" in tool.lower(): cost = cost / 10 # DeepSeek rẻ hơn 10 lần
+        
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # Ghi vào bảng work_logs (mà ngài vừa tạo bên kia)
+        c.execute("""
+            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            datetime.now().strftime("%H:%M %d/%m"),
+            agent,
+            task[:100], # Chỉ lưu tóm tắt đề bài
+            result[:200], # Chỉ lưu tóm tắt kết quả
+            tool,
+            cost
+        ))
+        
+        # Cộng điểm XP luôn cho Agent đó
+        c.execute("UPDATE agent_status SET xp = xp + 50 WHERE role_tag = ?", (f"[{agent.upper()}]",))
+        
+        conn.commit()
+        conn.close()
+        print(colored(f"✅ [AUDIT] Đã ghi sổ cho {agent}. Cost: ${cost:.6f}", "green"))
+        
+    except Exception as e:
+        print(colored(f"⚠️ Không thể ghi log: {e}", "yellow"))
 # ============================================================================
 # NODE: KNOWLEDGE RETRIEVAL (Truy xuất Tri thức & Ký ức doanh nghiệp)
 # ============================================================================
@@ -1077,6 +1113,7 @@ def check_zombie_loop(messages, threshold=3):
     if repeats >= threshold:
         return True # Đã lặp lại 3 lần -> ZOMBIE LOOP
     return False
+
 
 async def supervisor_node(state):
     print(colored(f"\n[🧠 SUPERVISOR] DeepSeek đang điều phối (Bước {len(state['messages'])})...", "cyan", attrs=["bold"]))
@@ -1657,8 +1694,10 @@ def researcher_node(state):
     Agent Researcher: Chuyên gia phân tích thị trường 2026.
     Nâng cấp: Tự động nhận diện Tag ngữ cảnh để quyết định hành động tiếp theo.
     """
-    print(colored("[🔍 RESEARCHER] Đang thực thi nhiệm vụ thám mã thị trường...", "cyan", attrs=["bold"]))
+    # 1. [BẤM GIỜ] Bắt đầu tính giờ làm việc
+    start_time = time.time() 
     
+    print(colored("[🔍 RESEARCHER] Đang thực thi nhiệm vụ thám mã thị trường...", "cyan", attrs=["bold"]))
     # 1. Trích xuất tin nhắn và nhận diện Tag
     messages = state.get("messages", [])
     last_msg_content = messages[-1].content
@@ -1706,6 +1745,21 @@ def researcher_node(state):
                 next_destination = "Orchestrator"
             else:
                 next_destination = "Supervisor"
+
+        # ============================================================
+        # 🟢 [CHÈN ĐOẠN NÀY VÀO] GHI SỔ CÔNG VIỆC
+        # ============================================================
+        try:
+            log_work_to_db(
+                agent="Researcher",
+                task=clean_query,   # Đề bài sếp giao
+                result=raw_res,     # Kết quả tìm được
+                tool="Perplexity",  # Súng đã dùng
+                start_time=start_time # Thời gian bắt đầu
+            )
+        except Exception as log_err:
+            print(colored(f"⚠️ Lỗi ghi log kế toán: {log_err}", "yellow"))
+
 
         return {
             "messages": [AIMessage(content=report_content)],
@@ -2378,7 +2432,7 @@ async def main_loop():
     print(colored("="*50 + "\n", "cyan"))
     print(colored("ℹ️  Hệ thống đang chạy ngầm. Hãy gửi yêu cầu từ Dashboard HTML.", "yellow"))
     while True:
-        await asyncio.sleep(1000) # Nghỉ mỗi 1 tiếng rồi lặp lại (vô tận)
+        await asyncio.sleep(300) # Nghỉ mỗi 1 tiếng rồi lặp lại (vô tận)
         try:
             user_input = input(colored("CEO (Yêu cầu): ", "white", attrs=["bold"]))
             if user_input.lower() in ['q', 'exit']: 
