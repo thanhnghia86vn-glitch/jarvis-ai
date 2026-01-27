@@ -2376,8 +2376,9 @@ async def main_loop():
     print(colored("🚀 AI CORPORATION - HỆ THỐNG ĐIỀU HÀNH TỰ ĐỘNG", "cyan", attrs=["bold"]))
     print(colored("Chế độ: Parallel Coding & AST Testing [ON]", "green"))
     print(colored("="*50 + "\n", "cyan"))
-    
+    print(colored("ℹ️  Hệ thống đang chạy ngầm. Hãy gửi yêu cầu từ Dashboard HTML.", "yellow"))
     while True:
+        await asyncio.sleep(1000) # Nghỉ mỗi 1 tiếng rồi lặp lại (vô tận)
         try:
             user_input = input(colored("CEO (Yêu cầu): ", "white", attrs=["bold"]))
             if user_input.lower() in ['q', 'exit']: 
