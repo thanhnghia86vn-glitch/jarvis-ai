@@ -25,16 +25,16 @@ RUN mkdir -p uploads projects db_knowledge backups \
 # --- PHẦN QUAN TRỌNG NHẤT: TẠO SCRIPT KHỞI CHẠY TRỰC TIẾP ---
 # Kỹ thuật này giúp tránh lỗi xuống dòng (CRLF) của Windows 100%
 RUN echo '#!/bin/bash' > start.sh \
-    && echo 'echo "🧠 KHOI DONG AI BRAIN (Background)..."' >> start.sh \
-    && echo 'python main.py &' >> start.sh \
-    && echo 'echo "🚀 KHOI DONG API SERVER (Foreground)..."' >> start.sh \
-    && echo 'uvicorn api_server:app --host 0.0.0.0 --port ${PORT:-8080}' >> start.sh \
+    && echo 'echo "🧠 KHOI DONG AI BRAIN TRONG NEN..."' >> start.sh \
+    && echo 'python main.py > brain.log 2>&1 &' >> start.sh \
+    && echo 'echo "🚀 KHOI DONG API SERVER TREN CONG $PORT..."' >> start.sh \
+    && echo 'uvicorn api_server:app --host 0.0.0.0 --port $PORT' >> start.sh \
     && chmod +x start.sh
-
 # 7. Khai báo cổng (Render sẽ tự map, nhưng khai báo cho chuẩn)
 ENV PORT=8080
 EXPOSE 8080
 
 # 8. Lệnh kích hoạt hệ thống (Chạy file script vừa tạo ở trên)
 CMD ["./start.sh"]
+
 
