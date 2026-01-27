@@ -1,14 +1,13 @@
+# --- CORE WEB & API ---
 fastapi
 uvicorn
 python-multipart
 aiofiles
 jinja2
-python-dotenv
-pysqlite3-binary
-termcolor
 requests
-apscheduler
-gtts
+httpx
+
+# --- AI & LANGCHAIN ECOSYSTEM ---
 langchain
 langchain-core
 langchain-community
@@ -16,17 +15,36 @@ langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-chroma
-chromadb
-pydantic
-httpx
-pandas
-numpy
+langchain-text-splitters
+
+# --- AI MODELS SDK ---
 openai
 google-generativeai
 anthropic
-langchain-text-splitters
-psycopg2-binary
+
+# --- DATABASE & VECTOR STORE ---
+chromadb
+pysqlite3-binary
+pydantic
 sqlalchemy
+psycopg2-binary
 
+# --- DATA SCIENCE & VISUALIZATION (Quan trọng cho Engineering Node) ---
+pandas
+numpy
+plotly
 
+# --- UTILITIES & SYSTEM ---
+python-dotenv
+termcolor
+apscheduler
 
+# --- MULTIMEDIA & PDF (Quan trọng cho báo cáo & Vision) ---
+fpdf2
+pillow
+pdf2image
+pytesseract
+gtts
+
+# --- (Optional) NẾU CÒN DÙNG STREAMLIT ---
+# streamlit
