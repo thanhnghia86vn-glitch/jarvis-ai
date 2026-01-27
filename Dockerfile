@@ -1,5 +1,5 @@
 # 1. Chọn hệ điều hành nền (Python 3.10 ổn định)
-FROM python:3.10-slim
+FROM python:3.13-slim
 
 # 2. Cài đặt công cụ hệ thống (FFmpeg cho âm thanh, Git, Curl)
 RUN apt-get update && apt-get install -y \
@@ -36,5 +36,6 @@ EXPOSE 8080
 
 # 8. Lệnh kích hoạt hệ thống (Chạy file script vừa tạo ở trên)
 CMD ["./start.sh"]
+
 
 
