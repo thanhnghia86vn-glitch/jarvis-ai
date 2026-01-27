@@ -25,5 +25,5 @@ RUN mkdir -p uploads projects db_knowledge && chmod 777 uploads projects db_know
 ENV PORT=8080
 EXPOSE 8080
 
-# 8. Lệnh kích hoạt J.A.R.V.I.S
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# 8. Đây là cách chạy mới: Gọi thằng quản lý start.sh để nó bật cả 2 thứ (AI + API) lên cùng lúc
+CMD ["./start.sh"]
