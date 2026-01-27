@@ -14,8 +14,7 @@ WORKDIR /app
 
 # 4. Copy và cài đặt thư viện Python trước (để tận dụng Cache)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 # 5. Copy toàn bộ mã nguồn dự án vào
 COPY . .
 
@@ -38,3 +37,4 @@ EXPOSE 8080
 
 # 8. Lệnh kích hoạt hệ thống (Chạy file script vừa tạo ở trên)
 CMD ["./start.sh"]
+
