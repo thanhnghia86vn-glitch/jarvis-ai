@@ -3,249 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S ADMIN PANEL</title>
+    <title>AI COST AUDIT - KIỂM SOÁT TÀI CHÍNH</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0b1120; color: #cbd5e1; font-family: 'Segoe UI', monospace; }
+        body { background-color: #0f172a; color: #cbd5e1; font-family: 'Segoe UI', monospace; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; }
-        .neon-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.8); }
-        .btn-action { transition: all 0.3s; }
-        .btn-action:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4); }
-        .key-input { background: rgba(15, 23, 42, 0.8); border: 1px solid #3b82f6; color: #4ade80; font-family: monospace; letter-spacing: 2px; }
-        /* Tùy chỉnh thanh cuộn */
-        .custom-scroll::-webkit-scrollbar { width: 8px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #1e293b; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+        .neon-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .cost-negative { color: #f87171; text-shadow: 0 0 5px rgba(248, 113, 113, 0.5); }
+        .cost-positive { color: #4ade80; }
+        
+        /* Scrollbar đẹp */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+        table tbody tr:hover { background-color: rgba(59, 130, 246, 0.1); }
     </style>
 </head>
 <body class="min-h-screen p-6">
 
-    <div class="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-700 pb-6 gap-4">
-        <div class="flex items-center gap-4 w-full md:w-auto">
-            <div class="relative">
-                <i class="fas fa-brain text-5xl text-blue-500 animate-pulse"></i>
-                <div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+    <div class="flex justify-between items-center mb-8 border-b border-slate-700 pb-6">
+        <div class="flex items-center gap-4">
+            <div class="p-3 bg-slate-800 rounded-lg border border-slate-600">
+                <i class="fas fa-file-invoice-dollar text-4xl text-yellow-500"></i>
             </div>
             <div>
-                <h1 class="text-3xl font-bold text-white tracking-widest neon-text">J.A.R.V.I.S CORE</h1>
-                <p class="text-xs text-blue-400 font-mono tracking-wider">ADMINISTRATION // v3.0</p>
+                <h1 class="text-3xl font-bold text-white tracking-widest neon-text">FINANCIAL AUDIT</h1>
+                <p class="text-xs text-slate-400 font-mono">SYSTEM: AI CORPORATION // MODULE: COST TRACKING</p>
             </div>
         </div>
-
-        <div class="glass-panel px-4 py-3 flex items-center gap-3 w-full md:w-auto border-yellow-500/30">
-            <div class="text-yellow-500 font-bold text-xs uppercase tracking-wider"><i class="fas fa-key"></i> MASTER KEY:</div>
-            <div class="relative flex items-center">
-                <input type="password" id="apiKeyInput" value="{{ api_key }}" readonly class="key-input rounded px-3 py-1 text-sm w-48 focus:outline-none focus:border-yellow-400 transition">
-                <button onclick="toggleKey()" class="absolute right-2 text-slate-400 hover:text-white transition px-2">
-                    <i class="fas fa-eye" id="eyeIcon"></i>
-                </button>
-            </div>
-            <button onclick="copyKey()" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm transition" title="Copy Key">
-                <i class="fas fa-copy"></i>
-            </button>
-        </div>
-
-        <div class="text-right hidden md:block">
-            <div class="text-green-400 font-bold text-xs uppercase"><i class="fas fa-satellite-dish"></i> CONNECTION STABLE</div>
-            <div id="clock" class="text-slate-500 font-mono text-lg font-bold">--:--:--</div>
+        <div class="text-right">
+            <div class="text-green-400 font-bold text-xs uppercase"><i class="fas fa-link"></i> API LINKED</div>
+            <div id="clock" class="text-slate-500 font-mono text-xl">--:--:--</div>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div class="glass-panel p-6 border-l-4 border-blue-500">
-            <h3 class="text-slate-400 text-sm font-bold uppercase">Doanh Thu</h3>
-            <p id="stat-revenue" class="text-3xl font-bold text-white mt-1">$0.00</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="glass-panel p-6 border-l-4 border-red-500 relative overflow-hidden">
+            <div class="absolute right-4 top-4 text-red-500/20 text-6xl"><i class="fas fa-coins"></i></div>
+            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng chi phí (Total Cost)</h3>
+            <p id="total-cost" class="text-4xl font-bold text-white mt-2 cost-negative">$0.000000</p>
+            <p class="text-xs text-slate-500 mt-1">Cập nhật theo thời gian thực</p>
         </div>
-        <div class="glass-panel p-6 border-l-4 border-red-500">
-            <h3 class="text-slate-400 text-sm font-bold uppercase">Chi Phí</h3>
-            <p id="stat-expense" class="text-3xl font-bold text-white mt-1">$0.00</p>
+
+        <div class="glass-panel p-6 border-l-4 border-blue-500 relative overflow-hidden">
+            <div class="absolute right-4 top-4 text-blue-500/20 text-6xl"><i class="fas fa-server"></i></div>
+            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng Token tiêu thụ</h3>
+            <p id="total-tokens" class="text-4xl font-bold text-white mt-2">0</p>
+            <p class="text-xs text-slate-500 mt-1">Input + Output</p>
         </div>
-        <div class="glass-panel p-6 border-l-4 border-green-500">
-            <h3 class="text-slate-400 text-sm font-bold uppercase">Lợi Nhuận</h3>
-            <p id="stat-profit" class="text-3xl font-bold text-green-400 mt-1">$0.00</p>
-        </div>
-        <div class="glass-panel p-6 border-l-4 border-purple-500">
-            <h3 class="text-slate-400 text-sm font-bold uppercase">Sản Phẩm</h3>
-            <p id="stat-products" class="text-3xl font-bold text-white mt-1">0</p>
+
+        <div class="glass-panel p-6 border-l-4 border-purple-500 relative overflow-hidden">
+            <div class="absolute right-4 top-4 text-purple-500/20 text-6xl"><i class="fas fa-crown"></i></div>
+            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Giao dịch gần nhất</h3>
+            <p id="last-agent" class="text-2xl font-bold text-white mt-2">---</p>
+            <p id="last-cost" class="text-xs text-purple-400 mt-1 font-mono">$0.0000</p>
         </div>
     </div>
 
-    <div class="glass-panel p-6 mb-8">
-        <div class="flex justify-between items-center mb-4 border-b border-slate-700/50 pb-2">
-            <h2 class="text-xl font-bold text-purple-400 tracking-wide">
-                <i class="fas fa-users-cog"></i> ĐỘI NGŨ CHUYÊN GIA (AGENT ROSTER)
-            </h2>
-            <button class="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600 text-slate-200 transition" onclick="loadAgents()">
-                <i class="fas fa-sync-alt"></i> Cập nhật
-            </button>
-        </div>
-        
-        <div id="agent-roster-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <div class="col-span-full text-center py-8">
-                <i class="fas fa-circle-notch fa-spin text-purple-500 text-2xl"></i>
-                <p class="text-slate-500 mt-2 text-sm">Đang đồng bộ dữ liệu nhân sự...</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-        
-        <div class="glass-panel p-6">
-            <h2 class="text-xl font-bold text-blue-400 mb-4"><i class="fas fa-microchip"></i> HUẤN LUYỆN (BRAIN TRAINING)</h2>
-            
-            <div class="mb-6 bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                <label class="block text-sm font-bold text-slate-300 mb-2">1. Nạp Tài Liệu (PDF)</label>
-                <div class="flex gap-2 items-center">
-                    <input type="file" id="pdf-input" accept=".pdf" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer">
-                    <button onclick="uploadPDF()" class="btn-action bg-blue-600 hover:bg-blue-500 text-white w-10 h-10 rounded-lg flex items-center justify-center">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                    </button>
-                </div>
-                <p id="upload-status" class="text-xs mt-2 text-slate-500 italic h-4"></p>
-            </div>
-
-            <div class="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                <label class="block text-sm font-bold text-slate-300 mb-2">2. Dạy Bảo Trực Tiếp (Text)</label>
-                <textarea id="learn-text" rows="3" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-sm focus:outline-none focus:border-blue-500 text-slate-300" placeholder="Nhập quy trình, nội quy hoặc kiến thức mới..."></textarea>
-                <button onclick="learnText()" class="btn-action w-full mt-3 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-bold text-sm">
-                    <i class="fas fa-save mr-2"></i> GHI VÀO BỘ NHỚ
-                </button>
-                <p id="learn-status" class="text-xs mt-2 text-slate-500 italic h-4"></p>
+    <div class="glass-panel p-6 h-[600px] flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-white"><i class="fas fa-list-alt text-slate-400 mr-2"></i> NHẬT KÝ GIAO DỊCH CHI TIẾT (AUDIT LOG)</h2>
+            <div class="flex gap-2">
+                <span class="px-3 py-1 bg-slate-800 rounded text-xs text-slate-400 border border-slate-700">
+                    <i class="fas fa-circle text-green-500 text-[8px] mr-1"></i> Live Sync
+                </span>
             </div>
         </div>
 
-        <div class="glass-panel p-6 flex flex-col h-full">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold text-yellow-400"><i class="fas fa-cubes"></i> KHO SẢN PHẨM</h2>
-                <button class="text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600 text-white" onclick="loadProducts()">
-                    <i class="fas fa-sync"></i>
-                </button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1 pr-2 custom-scroll" style="max-height: 400px;">
-                <table class="w-full text-sm text-left text-slate-400">
-                    <thead class="text-xs text-slate-200 uppercase bg-slate-700 sticky top-0 shadow-md">
-                        <tr>
-                            <th class="px-4 py-3 rounded-tl-lg">ID</th>
-                            <th class="px-4 py-3">Tên sản phẩm</th>
-                            <th class="px-4 py-3 rounded-tr-lg text-right">Giá ($)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="product-list" class="divide-y divide-slate-700">
-                        <tr><td colspan="3" class="text-center py-4 text-xs">Đang tải...</td></tr>
-                    </tbody>
-                </table>
-            </div>
+        <div class="overflow-auto custom-scroll flex-1 rounded-lg border border-slate-700">
+            <table class="w-full text-left text-sm text-slate-400">
+                <thead class="bg-slate-800 text-xs uppercase text-slate-200 sticky top-0 shadow-lg">
+                    <tr>
+                        <th class="px-6 py-3 font-bold">Thời gian</th>
+                        <th class="px-6 py-3 font-bold">Nhân sự (Agent)</th>
+                        <th class="px-6 py-3 font-bold">Model / API</th>
+                        <th class="px-6 py-3 text-center">Token (In/Out)</th>
+                        <th class="px-6 py-3 text-right font-bold text-yellow-500">Chi phí ($)</th>
+                        <th class="px-6 py-3">Nội dung xử lý</th>
+                    </tr>
+                </thead>
+                <tbody id="audit-table-body" class="divide-y divide-slate-700 bg-slate-900/50">
+                    <tr>
+                        <td colspan="6" class="text-center py-8">
+                            <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
+                            <p class="mt-2 text-xs">Đang kết nối đến Kế toán trưởng (API Server)...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
     <script>
-        const API_KEY = document.getElementById("apiKeyInput").value || "ai_corp_secret_123";
+        // --- CẤU HÌNH ---
+        // Nếu chạy trên Cloud, thay localhost bằng link Render của ngài
+        // Ví dụ: const API_URL = "https://ai-corp.onrender.com";
+        const API_URL = ""; // Để trống nếu chạy cùng domain (hoặc điền localhost:8000 nếu chạy local)
 
-        // --- 1. HÀM TẢI THỐNG KÊ (ĐÃ SỬA ID) ---
-        async function loadStats() {
+        async function fetchAuditLogs() {
             try {
-                const res = await fetch('/api/stats');
+                // Gọi API từ api_server.py (/api/costs)
+                const res = await fetch(`${API_URL}/api/costs`);
+                if (!res.ok) throw new Error("Mất kết nối API");
+                
                 const data = await res.json();
-                
-                // [FIXED] Sửa lại ID cho khớp với HTML
-                document.getElementById('stat-revenue').innerText = `$${data.revenue || 0}`;
-                document.getElementById('stat-expense').innerText = `$${data.expense || 0}`;
-                document.getElementById('stat-products').innerText = data.products || 0;
-                document.getElementById('stat-profit').innerText = `$${data.balance || 0}`;
-            } catch (e) { console.error("Lỗi stats:", e); }
-        }
+                renderTable(data);
+                calculateStats(data);
 
-        // --- 2. HÀM TẢI AGENT (ĐÃ SỬA ID) ---
-        async function loadAgents() {
-            // [FIXED] Sửa lại ID đúng: agent-roster-container
-            const container = document.getElementById('agent-roster-container');
-            try {
-                const res = await fetch('/api/agents/status');
-                if (!res.ok) throw new Error("Server Error");
-                const agents = await res.json();
-                
-                container.innerHTML = ''; // Xóa spinner
-
-                if (!agents || agents.length === 0) {
-                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-4">Chưa có dữ liệu nhân sự. Hãy bấm "Ép học ngay" ở Dashboard.</div>';
-                    return;
-                }
-
-                let html = '';
-                agents.forEach(agent => {
-                    const level = Math.floor(agent.xp / 100) + 1;
-                    const progress = agent.xp % 100;
-                    const levelColor = level > 5 ? 'text-yellow-400' : 'text-blue-400';
-                    
-                    html += `
-                    <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-bold ${levelColor}">${agent.role_tag}</span>
-                            <span class="text-xs bg-gray-700 px-2 py-1 rounded">Lv.${level}</span>
-                        </div>
-                        <div class="w-full bg-gray-700 rounded-full h-2.5 mb-2">
-                            <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${progress}%"></div>
-                        </div>
-                        <p class="text-xs text-gray-400 truncate" title="${agent.current_topic}">Act: <span class="text-white">${agent.current_topic || 'Idle'}</span></p>
-                        <p class="text-xs text-gray-500 mt-1 flex justify-between">
-                            <span>XP: ${agent.xp}</span>
-                            <span>${new Date(agent.last_updated).toLocaleTimeString()}</span>
-                        </p>
-                    </div>`;
-                });
-                container.innerHTML = html;
-                
             } catch (e) {
-                console.error("Lỗi agent:", e);
-                container.innerHTML = '<div class="col-span-full text-red-400 text-center text-sm">⚠️ Mất kết nối Server.</div>';
+                console.error("Lỗi Audit:", e);
+                document.getElementById('audit-table-body').innerHTML = `
+                    <tr><td colspan="6" class="text-center py-8 text-red-500">
+                        <i class="fas fa-exclamation-triangle mb-2"></i><br>
+                        Không thể tải dữ liệu tài chính.<br>
+                        <span class="text-xs text-slate-500">Hãy kiểm tra api_server.py đã chạy chưa?</span>
+                    </td></tr>`;
             }
         }
 
-        // --- 3. HÀM TẢI SẢN PHẨM ---
-        async function loadProducts() {
-            const list = document.getElementById('product-list');
-            try {
-                const res = await fetch('/api/products');
-                const prods = await res.json();
-                list.innerHTML = '';
-                if(prods.length === 0) {
-                    list.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-xs">Kho trống</td></tr>';
-                    return;
-                }
-                prods.forEach(p => {
-                    list.innerHTML += `
-                        <tr class="hover:bg-slate-700/50 transition">
-                            <td class="px-4 py-3 font-mono text-blue-400">#${p.id}</td>
-                            <td class="px-4 py-3 font-bold text-white">${p.name}</td>
-                            <td class="px-4 py-3 text-right text-green-400">$${p.price}</td>
-                        </tr>`;
-                });
-            } catch(e) { list.innerHTML = '<tr><td colspan="3" class="text-center text-red-400">Lỗi tải kho</td></tr>'; }
-        }
+        function calculateStats(data) {
+            let totalCost = 0;
+            let totalTokens = 0;
 
-        // --- 4. HÀM HỖ TRỢ (UX) ---
-        function toggleKey() {
-            const input = document.getElementById("apiKeyInput");
-            const icon = document.getElementById("eyeIcon");
-            if (input.type === "password") {
-                input.type = "text";
-                icon.classList.remove("fa-eye");
-                icon.classList.add("fa-eye-slash");
-            } else {
-                input.type = "password";
-                icon.classList.remove("fa-eye-slash");
-                icon.classList.add("fa-eye");
+            if (data.length > 0) {
+                // Tính tổng
+                totalCost = data.reduce((sum, item) => sum + (item.cost_usd || 0), 0);
+                totalTokens = data.reduce((sum, item) => sum + (item.input_tokens || 0) + (item.output_tokens || 0), 0);
+                
+                // Agent gần nhất
+                const lastItem = data[0];
+                document.getElementById('last-agent').innerText = lastItem.agent;
+                document.getElementById('last-cost').innerText = `-$${lastItem.cost_usd.toFixed(6)}`;
             }
+
+            // Hiển thị (Format tiền tệ chuẩn)
+            document.getElementById('total-cost').innerText = `$${totalCost.toFixed(6)}`;
+            document.getElementById('total-tokens').innerText = totalTokens.toLocaleString('en-US');
         }
 
-        function copyKey() {
-            const copyText = document.getElementById("apiKeyInput");
-            copyText.select();
-            navigator.clipboard.writeText(copyText.value);
-            alert("Đã copy API Key!");
+        function renderTable(data) {
+            const tbody = document.getElementById('audit-table-body');
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4">Chưa có giao dịch nào.</td></tr>';
+                return;
+            }
+
+            const html = data.map(item => {
+                // Format màu sắc cho Model để dễ phân biệt
+                let modelColor = "text-slate-300";
+                if (item.model_used.includes("gpt-4")) modelColor = "text-green-400"; // Đắt
+                if (item.model_used.includes("deepseek")) modelColor = "text-blue-400"; // Rẻ
+                if (item.model_used.includes("claude")) modelColor = "text-purple-400"; // Sáng tạo
+
+                return `
+                <tr class="transition duration-150">
+                    <td class="px-6 py-3 font-mono text-xs text-slate-500">${item.timestamp.split(' ')[1]}</td>
+                    <td class="px-6 py-3 font-bold text-white">${item.agent}</td>
+                    <td class="px-6 py-3 font-mono text-xs ${modelColor}">
+                        <i class="fas fa-microchip mr-1"></i> ${item.model_used}
+                    </td>
+                    <td class="px-6 py-3 text-center text-xs">
+                        <span class="text-slate-400" title="Input">${item.input_tokens}</span> / 
+                        <span class="text-white" title="Output">${item.output_tokens}</span>
+                    </td>
+                    <td class="px-6 py-3 text-right font-mono font-bold text-red-400">
+                        $${item.cost_usd.toFixed(6)}
+                    </td>
+                    <td class="px-6 py-3 text-xs text-slate-400 italic truncate max-w-xs" title="${item.knowledge_gained}">
+                        ${item.knowledge_gained || "N/A"}
+                    </td>
+                </tr>
+                `;
+            }).join('');
+
+            tbody.innerHTML = html;
         }
 
         // Đồng hồ
@@ -253,34 +188,10 @@
             document.getElementById('clock').innerText = new Date().toLocaleTimeString();
         }, 1000);
 
-        // Chạy khi mở trang
-        document.addEventListener('DOMContentLoaded', () => {
-            loadStats();
-            loadAgents();
-            loadProducts();
-            // Cập nhật tự động 10s/lần
-            setInterval(() => { loadStats(); loadAgents(); }, 10000);
-        });
+        // Chạy ngay khi mở và lặp lại mỗi 5s
+        fetchAuditLogs();
+        setInterval(fetchAuditLogs, 5000);
 
-        // Hàm placeholder cho Training (Cần API upload ở server.py để hoạt động thật)
-        async function learnText() {
-            const text = document.getElementById('learn-text').value;
-            const status = document.getElementById('learn-status');
-            if(!text) return;
-            status.innerText = "Đang gửi dữ liệu...";
-            status.className = "text-xs mt-2 text-yellow-500 italic h-4";
-            
-            // Giả lập gửi (Ngài cần thêm API /api/train/text trong server.py để dùng thật)
-            setTimeout(() => {
-                status.innerText = "✅ Đã gửi lệnh học. Agent sẽ xử lý trong 5s.";
-                status.className = "text-xs mt-2 text-green-500 italic h-4";
-                document.getElementById('learn-text').value = "";
-            }, 1000);
-        }
-
-        function uploadPDF() {
-            alert("Tính năng Upload PDF cần cấu hình API Endpoint trong server.py");
-        }
     </script>
 </body>
 </html>
