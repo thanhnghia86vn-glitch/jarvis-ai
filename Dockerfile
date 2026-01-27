@@ -1,29 +1,40 @@
-# 1. Chọn hệ điều hành nền (Python 3.10 nhẹ và ổn định)
+# 1. Chọn hệ điều hành nền (Python 3.10 ổn định)
 FROM python:3.10-slim
 
-# 2. Cài đặt các công cụ hệ thống cần thiết (FFmpeg cho âm thanh, GCC cho ChromaDB)
+# 2. Cài đặt công cụ hệ thống (FFmpeg cho âm thanh, Git, Curl)
 RUN apt-get update && apt-get install -y \
     build-essential \
     ffmpeg \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Thiết lập thư mục làm việc
 WORKDIR /app
 
-# 4. Copy file thư viện và cài đặt
+# 4. Copy và cài đặt thư viện Python trước (để tận dụng Cache)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Copy toàn bộ code vào trong hộp
+# 5. Copy toàn bộ mã nguồn dự án vào
 COPY . .
 
-# 6. Tạo các thư mục cần thiết để tránh lỗi Permission
-RUN mkdir -p uploads projects db_knowledge && chmod 777 uploads projects db_knowledge
+# 6. Tạo các thư mục dữ liệu và cấp quyền ghi (Tránh lỗi Permission denied)
+RUN mkdir -p uploads projects db_knowledge backups \
+    && chmod -R 777 uploads projects db_knowledge backups
 
-# 7. Mở cổng 8080 (Cổng giao tiếp với thế giới bên ngoài)
+# --- PHẦN QUAN TRỌNG NHẤT: TẠO SCRIPT KHỞI CHẠY TRỰC TIẾP ---
+# Kỹ thuật này giúp tránh lỗi xuống dòng (CRLF) của Windows 100%
+RUN echo '#!/bin/bash' > start.sh \
+    && echo 'echo "🧠 KHOI DONG AI BRAIN (Background)..."' >> start.sh \
+    && echo 'python main.py &' >> start.sh \
+    && echo 'echo "🚀 KHOI DONG API SERVER (Foreground)..."' >> start.sh \
+    && echo 'uvicorn api_server:app --host 0.0.0.0 --port ${PORT:-8080}' >> start.sh \
+    && chmod +x start.sh
+
+# 7. Khai báo cổng (Render sẽ tự map, nhưng khai báo cho chuẩn)
 ENV PORT=8080
 EXPOSE 8080
 
-# 8. Đây là cách chạy mới: Gọi thằng quản lý start.sh để nó bật cả 2 thứ (AI + API) lên cùng lúc
+# 8. Lệnh kích hoạt hệ thống (Chạy file script vừa tạo ở trên)
 CMD ["./start.sh"]
