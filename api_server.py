@@ -252,22 +252,35 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 # 1. TẠO CÁC BẢNG (Dùng cú pháp text() để an toàn)
-                # Lưu ý: PostgreSQL dùng SERIAL cho ID tự tăng, SQLite dùng INTEGER PRIMARY KEY
-                # Để tương thích cả 2 mà không dùng ORM phức tạp, ta dùng cấu trúc chuẩn SQL
                 
-                # Bảng Products
+                # Bảng Products (Sản phẩm bán)
                 conn.execute(text("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)"))
                 
-                # Bảng Finance Logs
+                # Bảng Finance Logs (Tổng quan thu chi)
                 conn.execute(text("CREATE TABLE IF NOT EXISTS finance_logs (id INTEGER PRIMARY KEY, type TEXT, amount REAL)"))
                 
-                # Bảng Agent Status (Quan trọng nhất)
+                # Bảng Agent Status (Level và XP)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS agent_status (
                         role_tag TEXT PRIMARY KEY, 
                         xp INTEGER DEFAULT 0, 
                         current_topic TEXT, 
                         last_updated TIMESTAMP
+                    )
+                """))
+
+                # --- [MỚI] BẢNG WORK LOGS (SỔ CÁI CHI TIẾT) ---
+                # Đây là bảng quan trọng nhất để ngài soi chi phí và nội dung học
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS work_logs (
+                        id INTEGER PRIMARY KEY,  -- Tự tăng
+                        timestamp TEXT,          -- Thời gian (Giờ/Ngày)
+                        agent_name TEXT,         -- Tên nhân viên (Coder, Researcher...)
+                        task_content TEXT,       -- Nội dung đề bài
+                        result_summary TEXT,     -- Kết quả học được/làm được
+                        tool_used TEXT,          -- Dùng súng gì (DeepSeek, GPT-4...)
+                        cost REAL,               -- Tốn bao nhiêu tiền ($)
+                        duration REAL            -- Mất bao nhiêu giây
                     )
                 """))
                 
@@ -1499,6 +1512,27 @@ def get_latest_audit_report():
         logger.error(f"🚨 [REPORT ERROR]: {str(e)}")
         return f"⚠️ Thưa CEO, không thể truy xuất hồ sơ: {str(e)}."
 
+@app.get("/api/costs")
+async def get_costs_api():
+    """API để main.html lấy dữ liệu báo cáo tài chính"""
+    try:
+        with db_manager.get_connection() as conn:
+            # Lấy 50 giao dịch gần nhất
+            result = conn.execute(text("SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary FROM work_logs ORDER BY id DESC LIMIT 50"))
+            logs = []
+            for row in result:
+                logs.append({
+                    "timestamp": row[0],
+                    "agent": row[1],
+                    "task": row[2],
+                    "tool": row[3],
+                    "cost": row[4],
+                    "result": row[5]
+                })
+            return logs
+    except Exception as e:
+        print(f"Lỗi API Costs: {e}")
+        return []
 
 # --- ENTRY POINT (CHẠY SERVER) ---
 
