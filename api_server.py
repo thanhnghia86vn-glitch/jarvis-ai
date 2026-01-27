@@ -16,7 +16,11 @@ app.add_middleware(
 
 DB_PATH = "ai_finance.db" # Đảm bảo file này đã được tạo từ main.py
 AGENT_DB_PATH = "agents_data.db" # Database chứa Level/XP
-
+@app.get("/health")
+def health_check():
+    """Render sẽ gọi cái này để kiểm tra server sống hay chết"""
+    return {"status": "ok", "message": "AI System is Healthy"}
+    
 @app.get("/api/costs")
 def get_costs():
     """Lấy dữ liệu chi phí chi tiết để đối chiếu"""
@@ -60,4 +64,5 @@ def get_agents_activity():
 
 if __name__ == "__main__":
     print("🚀 API Server đang chạy tại http://localhost:8000")
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
