@@ -840,66 +840,77 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="⛔ SAI MẬT MÃ QUÂN SỰ (WRONG API KEY)")
     return x_api_key
 
-async def get_agents_status_endpoint():
-    """API trả về Level & XP THẬT của Agent"""
-    try:
-        # Sử dụng Engine của SQLAlchemy để an toàn hơn với Thread
-        with db_manager.engine.connect() as conn:
-            # Truy vấn trực tiếp, không qua Pandas để giảm độ trễ và lỗi thư viện
-            result = conn.execute(text("SELECT role_tag, xp, current_topic, last_updated FROM agent_status ORDER BY xp DESC"))
-            
-            agents = []
-            for row in result:
-                # Tính Level dựa trên XP thật
-                xp = row[1]
-                level = int(xp / 100) + 1
-                
-                agents.append({
-                    "role_tag": row[0],      # Tên Agent (VD: [CODER])
-                    "xp": xp,                # Điểm kinh nghiệm thật
-                    "level": level,          # Cấp độ
-                    "current_topic": row[2] or "Đang chờ lệnh",
-                    "last_updated": str(row[3]) # Chuyển ngày giờ thành chuỗi
-                })
-            
-            return agents
-            
-    except Exception as e:
-        logger.error(f"Agent Status Error: {e}")
-        # Nếu lỗi DB, trả về rỗng để Dashboard biết đường xử lý chứ không crash
-        return []
-    
-@app.get("/api/stats")
-async def get_system_stats():
-    """Thống kê tài chính THỰC TẾ dựa trên hoạt động của Agent"""
+@app.get("/api/agents")
+async def get_agents_status():
+    """
+    API 1: Cung cấp dữ liệu cho cột TRÁI (Danh sách nhân viên)
+    """
     try:
         with db_manager.get_connection() as conn:
-            # 1. Đếm sản phẩm thật
+            # Lấy thông tin từ bảng agent_status
+            result = conn.execute(text("SELECT role_tag, xp, current_topic, last_updated FROM agent_status ORDER BY xp DESC"))
+            agents = []
+            for row in result:
+                xp = row[1] if row[1] else 0
+                level = int(xp / 100) + 1 # Công thức tính Level
+                agents.append({
+                    "role_tag": row[0],
+                    "xp": xp,
+                    "level": level,
+                    "current_topic": row[2] or "Đang chờ lệnh",
+                    "last_updated": str(row[3])
+                })
+            return agents
+    except Exception as e:
+        logger.error(f"Agents API Error: {e}")
+        return []
+
+@app.get("/api/costs")
+async def get_costs_history():
+    """
+    API 2: Cung cấp dữ liệu cho cột PHẢI (Nhật ký làm việc & Tiền nong)
+    """
+    try:
+        with db_manager.get_connection() as conn:
+            # Lấy 50 dòng mới nhất từ Sổ Cái (work_logs)
+            # Lưu ý: Cần khớp tên cột với lúc tạo bảng
+            result = conn.execute(text("SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary FROM work_logs ORDER BY id DESC LIMIT 50"))
+            logs = []
+            for row in result:
+                logs.append({
+                    "timestamp": row[0],
+                    "agent": row[1],
+                    "task": row[2],
+                    "tool": row[3],
+                    "cost_usd": row[4], # Dashboard JS tìm key 'cost_usd' này
+                    "result": row[5]
+                })
+            return logs
+    except Exception as e:
+        logger.error(f"Costs API Error: {e}")
+        return []
+
+@app.get("/api/stats")
+async def get_system_stats():
+    """
+    API 3: Tổng hợp tài chính (Cho trang Store/Main cũ)
+    """
+    try:
+        with db_manager.get_connection() as conn:
             prod_count = conn.execute(text("SELECT count(*) FROM products")).fetchone()[0]
             
-            # 2. Tính doanh thu thật (từ bảng finance)
-            income = conn.execute(text("SELECT SUM(amount) FROM finance_logs WHERE type='income'")).fetchone()[0] or 0.0
+            # Tính tổng chi phí thực tế từ bảng work_logs
+            # (Chính xác hơn cách tính nhân XP cũ)
+            expense_query = conn.execute(text("SELECT SUM(cost) FROM work_logs"))
+            total_expense = expense_query.fetchone()[0] or 0.0
             
-            # 3. [SỬA ĐỔI QUAN TRỌNG] TÍNH CHI PHÍ DỰA TRÊN CÔNG SỨC THẬT (XP)
-            # Thay vì chỉ lấy từ finance_logs (có thể đang trống), ta tính dựa trên tổng XP
-            # Giả định: 1 XP tốn khoảng $0.0005 (DeepSeek/OpenAI cost)
-            total_xp_query = conn.execute(text("SELECT SUM(xp) FROM agent_status"))
-            total_xp = total_xp_query.fetchone()[0] or 0
-            
-            # Chi phí vận hành = Chi phí cố định + (Tổng XP * Hệ số giá)
-            fixed_cost = conn.execute(text("SELECT SUM(amount) FROM finance_logs WHERE type='expense'")).fetchone()[0] or 0.0
-            variable_cost = total_xp * 0.0005 
-            
-            total_expense = fixed_cost + variable_cost
-
             return {
                 "products": prod_count,
-                "revenue": round(income, 2),
-                "expense": round(total_expense, 4), # Hiển thị 4 số lẻ để thấy tiền nhảy từng chút
-                "balance": round(income - total_expense, 4)
+                "revenue": 0,       # Chưa bán hàng
+                "expense": round(total_expense, 4),
+                "balance": round(0 - total_expense, 4)
             }
     except Exception as e:
-        logger.error(f"Stats Error: {e}")
         return {"products": 0, "revenue": 0, "expense": 0, "balance": 0}
 
 @app.get("/api/products")
