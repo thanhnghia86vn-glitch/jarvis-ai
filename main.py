@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 # Import LangChain & AI Models
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
+from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -189,12 +190,7 @@ LOGIC_PRIMARY = LLM_GPT4
 # Researcher -> Perplexity
 RESEARCHER_PRIMARY = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI_LOGIC
 
-# llm = ChatOpenAI(
-#     model="gpt-4-turbo",
-#     max_retries=2,       # Chỉ thử lại 2 lần thay vì mặc định
-#     timeout=30,          # Chờ tối đa 30 giây
-#     temperature=0
-# )
+
 
 CODER_BACKUP = LLM_CLAUDE
 
@@ -212,6 +208,8 @@ class AgentState(TypedDict):
     current_agent: str
     error_log: Annotated[list, operator.add] # Thêm Annotated để AI có thể cộng dồn lịch sử lỗi
     task_type: str
+
+
 
 @tool
 def hardware_controller(command: str):
@@ -258,10 +256,27 @@ Yêu cầu: Nội dung phải mang tính phản biện, có chiều sâu nghiên
 """
 
 CONTEXT_PROMPTS = {
-    "CHAT": "Bạn là trợ lý J.A.R.V.I.S thân thiện...",
-    "RESEARCH": "Bạn là chuyên gia nghiên cứu thị trường 2026...",
-    "INVEST": "Bạn là CFO sắc sảo, tập trung vào lợi nhuận và ROI...",
-    "STORY": "Bạn là đại văn hào sáng tác nội dung có chiều sâu..."
+    # 1. NHÓM QUẢN TRỊ & ĐIỀU PHỐI
+    "CHAT": "Bạn là trợ lý J.A.R.V.I.S thân thiện, luôn trả lời ngắn gọn, súc tích và đi thẳng vào vấn đề.",
+    "SECRETARY": "Bạn là Thư ký điều hành chuyên nghiệp. Nhiệm vụ: Tóm tắt thông tin phức tạp thành báo cáo dễ hiểu, văn phong lịch sự, trang trọng.",
+    "ORCHESTRATOR": "Bạn là Tổng tham mưu trưởng. Nhiệm vụ: Phân tích quy trình, chia nhỏ tác vụ và điều phối nguồn lực.",
+    "PUBLISHER": "Bạn là Tổng biên tập. Nhiệm vụ: Tổng hợp dữ liệu rời rạc thành văn bản hoàn chỉnh, định dạng Markdown đẹp mắt.",
+
+    # 2. NHÓM KỸ THUẬT & PHẦN CỨNG
+    "CODER": "Bạn là Senior Full-stack Developer. Nguyên tắc: Code sạch (Clean Code), tối ưu hiệu suất, luôn có comment giải thích và tuân thủ SOLID.",
+    "TESTER": "Bạn là Chuyên gia QA/QC và Bảo mật. Nhiệm vụ: Tìm lỗi (bug), lỗ hổng bảo mật và kiểm tra tính logic của mã nguồn.",
+    "ARCHITECT": "Bạn là Kiến trúc sư hệ thống (Software Architect). Nhiệm vụ: Thiết kế cấu trúc database, sơ đồ luồng dữ liệu và kiến trúc Microservices.",
+    "HARDWARE": "Bạn là Kỹ sư phần cứng và Hệ thống nhúng. Chuyên gia về mạch điện, ESP32, Arduino và sơ đồ chân (Pinout).",
+    "IOT": "Bạn là Kỹ sư IoT. Chuyên gia về giao thức MQTT, kết nối không dây và điều khiển thiết bị từ xa.",
+    "ENGINEERING": "Bạn là Kỹ sư thiết kế mô phỏng. Chuyên gia sử dụng Python Plotly để vẽ các mô hình 3D và biểu đồ kỹ thuật.",
+
+    # 3. NHÓM NGHIỆP VỤ & SÁNG TẠO
+    "RESEARCH": "Bạn là Chuyên gia phân tích thị trường 2026. Nhiệm vụ: Cung cấp số liệu thực tế, xu hướng mới nhất và trích dẫn nguồn uy tín.",
+    "INVEST": "Bạn là Giám đốc Tài chính (CFO) sắc sảo. Tập trung vào: Lợi nhuận (ROI), chi phí (Cost), dòng tiền và rủi ro tài chính.",
+    "LEGAL": "Bạn là Giám đốc Pháp chế (CLO). Nhiệm vụ: Rà soát rủi ro pháp lý, bản quyền (IP), tuân thủ luật An ninh mạng và GDPR.",
+    "MARKETING": "Bạn là Giám đốc Marketing (CMO). Nhiệm vụ: Sáng tạo chiến dịch quảng bá, viết content viral, thấu hiểu tâm lý khách hàng (Insight).",
+    "STORY": "Bạn là Đại văn hào và Biên kịch xuất sắc. Sở trường: Kể chuyện (Storytelling) lôi cuốn, xây dựng bối cảnh và nhân vật có chiều sâu.",
+    "ARTIST": "Bạn là Giám đốc Nghệ thuật (Art Director). Nhiệm vụ: Tạo ra các mô tả hình ảnh (Prompt) chi tiết, giàu tính thẩm mỹ cho AI vẽ tranh."
 }
 
 def get_system_message(context):
@@ -728,41 +743,82 @@ def learn_knowledge(text: str):
         return f"❌ Lỗi khi ghi nhớ kiến thức: {e}"
 
 def log_work_to_db(agent, task, result, tool="GPT-4"):
-    """Hàm ghi chép công việc vào Sổ Cái"""
+    """Hàm ghi chép công việc vào Sổ Cái & Cộng XP (Đã Fix lỗi Level)"""
     try:
-        # Đường dẫn DB phải khớp với api_server.py
-        # Trên Cloud là /var/data/ai_corp_projects.db
+        # Đường dẫn DB chuẩn
         db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
         
-        # Tính tiền (Ước lượng $0.001 cho mỗi 1000 ký tự)
-        cost = len(result) * 0.00001 
-        if "deepseek" in tool.lower(): cost = cost / 10 # DeepSeek rẻ hơn 10 lần
+        # Tính tiền
+        cost = len(str(result)) * 0.00001 
+        if "deepseek" in tool.lower(): cost = cost / 10 
         
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10) # Thêm timeout
         c = conn.cursor()
         
-        # Ghi vào bảng work_logs (mà ngài vừa tạo bên kia)
+        # 1. Ghi Log chi tiết (Work Logs)
         c.execute("""
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
             datetime.now().strftime("%H:%M %d/%m"),
             agent,
-            task[:100], # Chỉ lưu tóm tắt đề bài
-            result[:200], # Chỉ lưu tóm tắt kết quả
+            str(task)[:100], 
+            str(result)[:200], 
             tool,
             cost
         ))
         
-        # Cộng điểm XP luôn cho Agent đó
-        c.execute("UPDATE agent_status SET xp = xp + 50 WHERE role_tag = ?", (f"[{agent.upper()}]",))
+        # 2. CỘNG ĐIỂM XP (FIX LỖI QUAN TRỌNG)
+        # Chuẩn hóa tên Agent để khớp với bảng agent_status
+        # Ví dụ: "Researcher" -> "[RESEARCH]"
+        # Map này phải khớp với lúc khởi tạo DB
+        role_map = {
+            # --- NHÓM SÁNG TẠO & CỐT LÕI ---
+            "RESEARCHER": "[RESEARCH]",
+            "CODER": "[CODER]",
+            "ARTIST": "[ARTIST]",
+            "STORYTELLER": "[STORY]",
+            "MARKETING": "[MARKETING]",
+            
+            # --- NHÓM QUẢN TRỊ & ĐIỀU PHỐI ---
+            "ORCHESTRATOR": "[ORCHESTRATOR]",
+            "SUPERVISOR": "[SUPERVISOR]",
+            "SECRETARY": "[SECRETARY]",
+            "ROUTER": "[ROUTER]",
+            "PUBLISHER": "[PUBLISHER]",
+            
+            # --- NHÓM KỸ THUẬT & PHẦN CỨNG ---
+            "HARDWARE": "[HARDWARE]",
+            "ENGINEERING": "[ENGINEERING]",
+            "IOT_ENGINEER": "[IOT]",         # Lưu ý: Tên node là IoT_Engineer -> Tag là [IOT]
+            "TESTER": "[TESTER]",
+            
+            # --- NHÓM NGHIỆP VỤ (TÀI CHÍNH/PHÁP LÝ) ---
+            "PROCUREMENT": "[PROCUREMENT]",  # Thu mua
+            "INVESTMENT": "[INVESTMENT]",    # Tài chính
+            "LEGAL": "[LEGAL]",              # Pháp lý
+            "STRATEGY_R_AND_D": "[STRATEGY]" # Chiến lược (Tên node dài -> Tag ngắn)
+        }
         
+        target_role = role_map.get(agent.upper(), f"[{agent.upper()}]") # Fallback nếu không có trong map
+        
+        # Cộng 50 XP
+        c.execute("UPDATE agent_status SET xp = xp + 50, last_updated = ? WHERE role_tag = ?", 
+                  (datetime.now(), target_role))
+        
+        # Nếu chưa có thì tạo mới luôn (Tránh trường hợp nhân viên mới chưa có hồ sơ)
+        c.execute("""
+            INSERT OR IGNORE INTO agent_status (role_tag, xp, current_topic, last_updated)
+            VALUES (?, 50, ?, ?)
+        """, (target_role, "Vừa hoàn thành nhiệm vụ", datetime.now()))
+
         conn.commit()
         conn.close()
-        print(colored(f"✅ [AUDIT] Đã ghi sổ cho {agent}. Cost: ${cost:.6f}", "green"))
+        
+        print(colored(f"✅ [AUDIT] {agent} ({target_role}): +50 XP | Cost: ${cost:.6f}", "green"))
         
     except Exception as e:
-        print(colored(f"⚠️ Không thể ghi log: {e}", "yellow"))
+        print(colored(f"⚠️ Lỗi ghi log/XP: {e}", "yellow"))
 # ============================================================================
 # NODE: KNOWLEDGE RETRIEVAL (Truy xuất Tri thức & Ký ức doanh nghiệp)
 # ============================================================================
@@ -1114,6 +1170,12 @@ def check_zombie_loop(messages, threshold=3):
         return True # Đã lặp lại 3 lần -> ZOMBIE LOOP
     return False
 
+class SupervisorDecision(BaseModel):
+    """Cấu trúc quyết định chuẩn của Supervisor"""
+    department: Literal["INTERNAL_OPS", "RESEARCH_LAB", "TECH_DEV", "CREATIVE_STUDIO", "PM_OFFICE", "CHAT"] = Field(
+        ..., description="Phòng ban chịu trách nhiệm."
+    )
+    reason: str = Field(..., description="Lý do điều phối.")
 
 async def supervisor_node(state):
     """
@@ -1149,21 +1211,20 @@ async def supervisor_node(state):
 
     try:
         # Dùng DeepSeek/GPT để tư duy
-        model = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
-        response = await model.ainvoke([
-            SystemMessage(content=strategy_prompt),
+        llm = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
+        
+        # Kích hoạt chế độ Structured Output (Ép kiểu dữ liệu chuẩn 100%)
+        structured_llm = llm.with_structured_output(SupervisorDecision)
+        
+        # Gọi AI (Kết quả trả về là Object, không phải String nữa)
+        decision = await structured_llm.ainvoke([
+            SystemMessage(content=strategy_prompt), # Lưu ý: Dùng biến system_prompt mới định nghĩa
             HumanMessage(content=last_msg)
         ])
-        
-        # Xử lý kết quả JSON (Làm sạch chuỗi để tránh lỗi)
-        clean_json = response.content.strip().replace("```json", "").replace("```", "")
-        decision = json.loads(clean_json)
-        
-        dept = decision.get("department", "RESEARCH_LAB")
-        reason = decision.get("reason", "Mặc định")
 
-        print(colored(f"--> [CHIẾN LƯỢC]: {dept}", "green"))
-        print(colored(f"--> [LÝ DO]: {reason}", "white"))
+        # Truy xuất trực tiếp (An toàn tuyệt đối)
+        dept = decision.department
+        reason = decision.reason
 
         # 4. THỰC THI CHIẾN LƯỢC (ROUTING)
 
