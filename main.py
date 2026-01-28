@@ -1116,102 +1116,98 @@ def check_zombie_loop(messages, threshold=3):
 
 
 async def supervisor_node(state):
-    print(colored(f"\n[🧠 SUPERVISOR] DeepSeek đang điều phối (Bước {len(state['messages'])})...", "cyan", attrs=["bold"]))
-
+    """
+    SUPERVISOR V4: SEMANTIC ROUTER (ĐỊNH TUYẾN HIỂU Ý)
+    [NÂNG CẤP]: Dùng AI để phân loại ý định CEO thay vì soi từ khóa cứng nhắc.
+    """
+    # 1. Lấy dữ liệu đầu vào
     raw_messages = state.get("messages", [])
-    error_log = state.get("error_log", [])
-    task_type = state.get("task_type", "general")
+    last_msg = raw_messages[-1].content
+    
+    print(colored(f"\n[🧠 SUPERVISOR] Đang phân tích ý định CEO: '{last_msg[:50]}...'", "cyan", attrs=["bold"]))
 
-    # --- 1. LỚP BẢO VỆ "CHỐNG ZOMBIE" (TIẾT KIỆM TIỀN TỐI ĐA) ---
-    # Nếu thấy nó nói lặp đi lặp lại 1 câu -> Cắt ngay lập tức
+    # 2. KIỂM TRA ZOMBIE LOOP (BẢO VỆ TÀI NGUYÊN)
     if check_zombie_loop(raw_messages):
-        print(colored("🚨 [WATCHDOG] Phát hiện vòng lặp vô nghĩa (Zombie Loop). DỪNG NGAY.", "red"))
         return {
-            "messages": [AIMessage(content="⚠️ **HỆ THỐNG TỰ NGẮT**: Phát hiện vòng lặp vô tận (Lỗi Logic). Dừng để bảo toàn chi phí.")],
-            "next_step": "FINISH",
-            "current_agent": "Supervisor"
+            "messages": [AIMessage(content="⚠️ HỆ THỐNG TỰ NGẮT: Phát hiện vòng lặp vô tận.")],
+            "next_step": "FINISH"
         }
 
-    # --- 2. LỚP BẢO VỆ "ĐỘ DÀI" (HỎI Ý KIẾN CEO) ---
-    if len(raw_messages) > 50:
-        last_user_msg = raw_messages[-1].content.upper()
-        # Nếu CEO chưa ra lệnh TIẾP TỤC -> Dừng lại hỏi
-        if "TIẾP TỤC" not in last_user_msg and "CONTINUE" not in last_user_msg:
-            print(colored("⚠️ [PAUSE] Đạt ngưỡng 50 bước. Tạm dừng xin ý kiến.", "yellow"))
+    # 3. BỘ NÃO PHÂN LOẠI (Dùng LLM để hiểu tiếng Việt tự nhiên)
+    router_prompt = """
+    Bạn là Trưởng bộ phận điều phối AI. Hãy đọc câu lệnh của CEO và phân loại vào 1 trong 5 nhóm:
+    
+    1. INTERNAL: Hỏi về nội bộ hệ thống, tiền nong, chi phí, các agent đang làm gì, log hoạt động. (VD: "Nay tốn bao nhiêu?", "Hệ thống ổn không?", "Báo cáo đi").
+    2. EXTERNAL: Hỏi thông tin bên ngoài, thị trường, kiến thức, tin tức, giá cả. (VD: "Giá vàng?", "Tìm hiểu về AI", "Hôm nay có gì hot").
+    3. CODING: Yêu cầu viết code, sửa lỗi, lập trình, tạo app.
+    4. ART: Yêu cầu vẽ tranh, tạo ảnh, thiết kế logo.
+    5. CHAT: Chào hỏi xã giao, khen ngợi, hoặc câu lệnh không rõ ràng.
+
+    YÊU CẦU: Chỉ trả về duy nhất 1 từ khóa (INTERNAL / EXTERNAL / CODING / ART / CHAT).
+    """
+
+    try:
+        # Gọi DeepSeek (hoặc GPT) để phân loại. Rất rẻ và nhanh.
+        model_to_use = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
+        decision_msg = await model_to_use.ainvoke([
+            SystemMessage(content=router_prompt),
+            HumanMessage(content=last_msg)
+        ])
+        intent = decision_msg.content.strip().upper()
+        
+        print(colored(f"--> [HIỂU Ý]: CEO muốn '{intent}'", "yellow"))
+
+        # 4. THỰC THI THEO Ý ĐỊNH ĐÃ HIỂU
+        
+        if "INTERNAL" in intent:
+            # Tự đọc Database trả lời ngay
+            try:
+                # Đường dẫn DB chuẩn
+                db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+                conn = sqlite3.connect(db_path, timeout=10)
+                cursor = conn.cursor()
+                
+                # Lấy tổng tiền
+                cursor.execute("SELECT SUM(cost) FROM work_logs")
+                total_cost = cursor.fetchone()[0] or 0.0
+                
+                # Lấy 3 việc gần nhất
+                cursor.execute("SELECT agent_name, task_content, result_summary FROM work_logs ORDER BY id DESC LIMIT 3")
+                tasks = cursor.fetchall()
+                conn.close()
+                
+                report = f"📊 **BÁO CÁO NỘI BỘ (REAL-TIME)**:\n- **Tổng chi phí**: ${total_cost:.5f}\n- **Hoạt động gần nhất**:\n"
+                for t in tasks:
+                    short_res = str(t[2])[:50] + "..." if t[2] else "Xong"
+                    report += f"   + **{t[0]}**: {t[1]} -> *{short_res}*\n"
+                    
+                return {"messages": [AIMessage(content=report)], "next_step": "FINISH"}
+            except Exception as e:
+                return {"messages": [AIMessage(content=f"⚠️ Lỗi đọc dữ liệu nội bộ: {e}")], "next_step": "FINISH"}
+
+        elif "EXTERNAL" in intent:
+            # Chuyển sang Researcher tìm kiếm
+            return {"next_step": "Researcher", "messages": []}
+
+        elif "CODING" in intent:
+            # Chuyển sang Coder
+            return {"next_step": "Coder", "messages": []}
+
+        elif "ART" in intent:
+            # Chuyển sang Artist
+            return {"next_step": "Artist", "messages": []}
+
+        else: # CHAT hoặc không hiểu
+            # Nếu chỉ là chat, trả lời xã giao rồi kết thúc
             return {
-                "messages": [AIMessage(content="⚠️ **CHECKPOINT**: Đã chạy 50 bước. Gõ **'TIẾP TỤC'** để chạy tiếp, hoặc lệnh khác để dừng.")],
-                "next_step": "FINISH", # Dừng luồng tự động để chờ CEO nhập lệnh
-                "current_agent": "Supervisor"
+                "messages": [AIMessage(content="Chào CEO! Tôi đang trực tuyến và sẵn sàng nhận lệnh.")],
+                "next_step": "FINISH"
             }
-        else:
-            print(colored("🚀 [RESUME] CEO đã cấp quyền chạy tiếp.", "green"))
-
-    # --- 3. GỌI BỘ NHỚ THÔNG MINH (LAZY SUMMARY) ---
-    try:
-        lean_messages = await get_smart_memory(raw_messages)
-    except:
-        lean_messages = raw_messages[-10:]
-
-    # --- 4. GỌI DEEPSEEK ĐỂ ĐIỀU PHỐI ---
-    supervisor_model = LLM_DEEPSEEK if 'LLM_DEEPSEEK' in globals() and LLM_DEEPSEEK else LLM_GPT4
-    
-    # Danh sách node đầy đủ
-    all_options = ["Coder", "Researcher", "Hardware", "Strategy_R_and_D", "Marketing", "Storyteller", "Legal", "Investment", "Engineering", "IoT_Engineer", "Procurement", "Artist", "Tester", "Secretary", "FINISH"]
-    
-    # [NÉ LỖI THÔNG MINH] Loại bỏ các Node đang bị lỗi trong phiên này
-    safe_options = [opt for opt in all_options if opt not in str(error_log)]
-    
-    prompt = (
-        "Bạn là Điều phối viên. Nhiệm vụ: Chọn chuyên gia xử lý tiếp theo.\n"
-        f"Danh sách khả dụng: {', '.join(safe_options)}\n"
-        "QUY TẮC:\n"
-        "1. Nếu nhiệm vụ đã hoàn thành, chọn FINISH.\n"
-        "2. Nếu một chuyên gia vừa báo lỗi, ĐỪNG chọn lại họ ngay, hãy chọn người khác hoặc FINISH.\n"
-        "3. Chỉ trả về tên chuyên gia (Ví dụ: 'Coder'). Không giải thích."
-    )
-
-    try:
-        response = await supervisor_model.ainvoke([SystemMessage(content=prompt)] + lean_messages)
-        decision = response.content.strip()
-        
-        final_next = "FINISH"
-        # Ưu tiên khớp chính xác tên Node trong danh sách an toàn
-        for node in safe_options:
-            if node in decision:
-                final_next = node
-                break
-        
-        # Map Alias (Giữ nguyên logic cũ của ngài cho an toàn)
-        aliases = {
-            "CODE": "Coder", "DEV": "Coder",
-            "SEARCH": "Researcher", "GOOGLE": "Researcher",
-            "WRITE": "Storyteller", "VE": "Artist", "DRAW": "Artist",
-            "MONEY": "Investment", "LAW": "Legal"
-        }
-        for k, v in aliases.items():
-            if k in decision.upper(): 
-                # Chỉ map nếu target không bị lỗi
-                if v in safe_options:
-                    final_next = v
-                    break
-
-        print(colored(f"--> [ĐIỀU PHỐI]: {final_next}", "green"))
-        
-        return {
-            "messages": [AIMessage(content=f"📡 Điều phối sang: {final_next}")],
-            "next_step": final_next,
-            "current_agent": "Supervisor",
-            "error_log": error_log,     
-            "task_type": task_type      
-        }
 
     except Exception as e:
-        print(colored(f"⚠️ Lỗi Supervisor: {e}", "red"))
-        return {
-            "messages": [AIMessage(content=f"⚠️ Lỗi điều phối: {str(e)}")], 
-            "next_step": "FINISH",
-            "current_agent": "Supervisor"
-        }
+        print(colored(f"Lỗi Router: {e}", "red"))
+        # Fallback: Nếu AI phân loại bị lỗi, mặc định đẩy sang Researcher
+        return {"next_step": "Researcher", "messages": []}
 #  ---- Viết Code----
 async def coder_node(state): # Chuyển sang async để chạy song song
     """
@@ -1698,16 +1694,21 @@ def researcher_node(state):
     start_time = time.time() 
     
     print(colored("[🔍 RESEARCHER] Đang thực thi nhiệm vụ thám mã thị trường...", "cyan", attrs=["bold"]))
-    # 1. Trích xuất tin nhắn và nhận diện Tag
+    # 2. [FIX QUAN TRỌNG] LỌC TÌM LỆNH CỦA CEO (HUMAN)
     messages = state.get("messages", [])
-    last_msg_content = messages[-1].content
     
-    # Kiểm tra xem CEO có đang ở chế độ RESEARCH chuyên biệt không
-    is_pure_research = "[RESEARCH]" in last_msg_content
-    
-    # Làm sạch câu lệnh (loại bỏ Tag trước khi gửi cho Perplexity)
-    clean_query = last_msg_content.replace("[RESEARCH]", "").strip()
-
+    # Mặc định lấy tin cuối, nhưng sẽ ưu tiên tìm tin nhắn của NGƯỜI (Human) gần nhất
+    # Để tránh lấy nhầm tin nhắn điều phối của hệ thống
+    target_msg_content = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            target_msg_content = msg.content
+            break
+            
+    if not target_msg_content:
+        target_msg_content = messages[-1].content # Fallback nếu không tìm thấy
+    is_pure_research = "[RESEARCH]" in target_msg_content
+    clean_query = target_msg_content.replace("[RESEARCH]", "").replace("[ORCHESTRATOR]", "").strip()
     # 2. Xây dựng Prompt Siêu Cấu Trúc (Sử dụng 4 cột trụ)
     search_prompt = (
         f"Nhiệm vụ: Phân tích thị trường 2026 cho: '{clean_query}'."
