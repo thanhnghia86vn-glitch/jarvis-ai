@@ -2648,141 +2648,140 @@ CURRICULUM = {
 # 2. HÀM ĐÀO TẠO CHUYÊN SÂU (PHIÊN BẢN KẾ THỪA - COST OPTIMIZED)
 async def specialized_training_job(role_tag: str):
     """
-    PHIÊN BẢN 11.0: COST-OPTIMIZED + AUTO-FIX DB
-    - Tự động tìm đúng đường dẫn DB (Cloud/Local).
-    - Tự động bỏ qua nếu bảng chưa được tạo (tránh crash).
-    - Giữ nguyên logic Kế thừa để tiết kiệm tiền.
+    PHIÊN BẢN 12.0: DEEP RESEARCH PROTOCOL (HỌC CHUYÊN SÂU & MỔ XẺ)
+    - Thay vì học lướt, Agent sẽ phân rã chủ đề thành 3-4 tiểu luận.
+    - Thời gian học: Tăng từ 2 phút -> 5-10 phút/chủ đề.
+    - Kết quả: Kiến thức sâu sắc, đa chiều (Lý thuyết + Thực hành + Rủi ro).
     """
-    print(colored(f"🛡️ [INHERITANCE CHECK] {role_tag} đang kiểm tra kho tri thức...", "cyan", attrs=["bold"]))
+    print(colored(f"\n📚 [DEEP LEARNING] {role_tag} bắt đầu khóa tu luyện chuyên sâu...", "cyan", attrs=["bold"]))
     
     topics = CURRICULUM.get(role_tag, [])
     if not topics: return
 
     try:
-        # [FIX QUAN TRỌNG]: Ép cứng đường dẫn Cloud nếu có, in ra để debug
+        # 1. KẾT NỐI DB (AUTO-PATH)
         if os.path.exists("/var/data"):
             db_path = "/var/data/ai_corp_projects.db"
-            print(colored(f"DEBUG: Main đang dùng DB Cloud: {db_path}", "blue"))
         else:
             db_path = "ai_corp_projects.db"
-            print(colored(f"DEBUG: Main đang dùng DB Local: {db_path}", "blue"))
-
-        conn = sqlite3.connect(db_path, timeout=10)
+            
+        conn = sqlite3.connect(db_path, timeout=30) # Tăng timeout
         c = conn.cursor()
 
-        # A. LẤY XP HIỆN TẠI (Kèm bẫy lỗi nếu bảng chưa có)
+        # A. LẤY XP (Tạo bảng nếu chưa có)
         try:
             c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,))
             row = c.fetchone()
             current_xp = row[0] if row else 0
-        except sqlite3.OperationalError:
-            print(colored(f"⚠️ Bảng 'agent_status' chưa sẵn sàng. Đang chờ Server khởi tạo...", "yellow"))
-            # --- [FIX MẠNH MẼ]: Tự tạo bảng nếu chưa có ---
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS agent_status (
-                    role_tag TEXT PRIMARY KEY, 
-                    xp INTEGER DEFAULT 0, 
-                    current_topic TEXT, 
-                    last_updated TIMESTAMP
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS work_logs (
-                    id INTEGER PRIMARY KEY,
-                    timestamp TEXT, agent_name TEXT, task_content TEXT, 
-                    result_summary TEXT, tool_used TEXT, cost REAL, duration REAL
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS learning_logs (
-                    id INTEGER PRIMARY KEY, event_type TEXT, content TEXT, 
-                    agent_name TEXT, timestamp TIMESTAMP
-                )
-            """)
-            c.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp TIMESTAMP)")
+        except:
+            # Tự tạo bảng nếu thiếu (Self-Healing)
+            c.execute("CREATE TABLE IF NOT EXISTS agent_status (role_tag TEXT PRIMARY KEY, xp INTEGER DEFAULT 0, current_topic TEXT, last_updated TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS work_logs (id INTEGER PRIMARY KEY, timestamp TEXT, agent_name TEXT, task_content TEXT, result_summary TEXT, tool_used TEXT, cost REAL, duration REAL)")
             conn.commit()
-            print(colored("✅ Đã tự động tạo xong các bảng dữ liệu!", "green"))
-            
-            # Sau khi tạo xong, mặc định XP = 0
             current_xp = 0
-            
+        
         conn.close()
 
-        # Chọn chủ đề
-        topic_index = int(current_xp / 50) % len(topics)
+        # B. CHỌN CHỦ ĐỀ
+        topic_index = int(current_xp / 100) % len(topics) # Tăng độ khó: 100 XP mới đổi bài
         current_topic = topics[topic_index]
         
-        # 2. KIỂM TRA KẾ THỪA
-        existing_knowledge = ""
-        is_found = False
+        print(colored(f"🎯 CHỦ ĐỀ NGHIÊN CỨU: {current_topic}", "yellow"))
+
+        # ---------------------------------------------------------
+        # 2. GIAI ĐOẠN 1: LẬP ĐỀ CƯƠNG (OUTLINING) - Dùng tư duy logic
+        # ---------------------------------------------------------
+        print(colored("   ↳ Bước 1: Phân rã kiến thức (Decomposition)...", "white"))
         
-        try:
-            # Kiểm tra vector_db có tồn tại không
+        outline_prompt = f"""
+        Bạn là Giáo sư đầu ngành về {role_tag}.
+        Tôi cần nghiên cứu sâu về: "{current_topic}".
+        Hãy chia chủ đề này thành 3 khía cạnh quan trọng nhất cần đào sâu (Ví dụ: Cơ chế hoạt động, Case study thực tế, Các lỗi sai kinh điển).
+        Chỉ trả về danh sách 3 gạch đầu dòng ngắn gọn.
+        """
+        # Dùng Gemini/GPT để tư duy
+        planner_llm = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
+        outline_res = await planner_llm.ainvoke(outline_prompt)
+        sub_topics = [line.strip("- *") for line in outline_res.content.split('\n') if line.strip()][:3]
+        
+        if not sub_topics: sub_topics = [f"Chi tiết về {current_topic}", f"Ứng dụng của {current_topic}", f"Tương lai của {current_topic}"]
+
+        # ---------------------------------------------------------
+        # 3. GIAI ĐOẠN 2: ĐÀO SÂU (DEEP DIVE SEARCH) - Tốn thời gian nhất
+        # ---------------------------------------------------------
+        full_knowledge_base = []
+        
+        for i, sub in enumerate(sub_topics):
+            print(colored(f"   ↳ Bước 2.{i+1}: Đang nghiên cứu sâu về: '{sub}'...", "magenta"))
+            
+            # Kiểm tra xem não đã biết chưa (Kế thừa cục bộ)
+            local_knowledge = ""
             if 'vector_db' in globals() and vector_db:
-                # Dùng asyncio.to_thread để không chặn luồng chính
-                results = await asyncio.to_thread(vector_db.similarity_search, current_topic, k=1)
-                if results:
-                    existing_knowledge = results[0].page_content
-                    is_found = True
-                    print(colored(f"💡 [FOUND] Đã tìm thấy kiến thức cũ: {current_topic}", "green"))
-        except: pass
+                try:
+                    res = await asyncio.to_thread(vector_db.similarity_search, sub, k=1)
+                    if res: local_knowledge = res[0].page_content
+                except: pass
 
-        # 3. QUYẾT ĐỊNH CHIẾN LƯỢC
-        final_output = ""
-        xp_earned = 0
-        mode = "UNKNOWN"
-
-        # --- NHÁNH 1: KẾ THỪA (REVIEW) ---
-        if is_found and existing_knowledge:
-            mode = "REVIEW"
-            print(colored("--> Chế độ: REVIEW (Ôn tập) - Tiết kiệm tiền.", "yellow"))
-            
-            if LLM_GEMINI_LOGIC:
-                review_prompt = f"Ôn tập lại kiến thức này của {role_tag}: {existing_knowledge[:2000]}. Tóm tắt và đề xuất ý tưởng mới."
-                res = await LLM_GEMINI_LOGIC.ainvoke(review_prompt)
-                final_output = res.content
-                xp_earned = 20
+            # Nếu chưa biết -> Search Mới (Perplexity)
+            # Nếu đã biết -> Dùng GPT-4 Phản biện/Mở rộng (Critical Thinking)
+            if not local_knowledge and LLM_PERPLEXITY:
+                search_res = await LLM_PERPLEXITY.ainvoke(f"Phân tích chuyên sâu (Deep Dive): {sub}. Yêu cầu số liệu, ví dụ code hoặc dẫn chứng cụ thể.")
+                content = search_res.content
+                source = "Deep Search"
             else:
-                final_output = existing_knowledge
+                # Chế độ "Reflection": Đã biết rồi thì phải suy ngẫm sâu hơn
+                reflect_prompt = f"Chúng ta đã biết: {local_knowledge[:1000]}. Hãy phân tích sâu hơn, tìm ra các góc khuất hoặc rủi ro mà ít người để ý về '{sub}'."
+                reflect_res = await planner_llm.ainvoke(reflect_prompt)
+                content = reflect_res.content
+                source = "Deep Reflection"
 
-        # --- NHÁNH 2: NGHIÊN CỨU MỚI (RESEARCH) ---
-        else:
-            mode = "RESEARCH"
-            print(colored("--> Chế độ: RESEARCH (Nghiên cứu mới).", "magenta"))
+            full_knowledge_base.append(f"### {sub} ({source})\n{content}")
             
-            raw_data = ""
-            if LLM_PERPLEXITY:
-                res = await LLM_PERPLEXITY.ainvoke(f"Nghiên cứu mới nhất về: {current_topic}")
-                raw_data = res.content
-            elif LLM_DEEPSEEK: # Fallback
-                res = await LLM_DEEPSEEK.ainvoke(f"Kiến thức về: {current_topic}")
-                raw_data = res.content
-            
-            final_output = raw_data
-            xp_earned = 50
+            # [QUAN TRỌNG]: Nghỉ 10 giây giữa các lần search để "ngẫm" và tránh spam API
+            await asyncio.sleep(10) 
 
-        # 4. LƯU VÀO NÃO (Nếu là kiến thức mới)
-        if mode == "RESEARCH" and final_output and 'vector_db' in globals() and vector_db:
+        # ---------------------------------------------------------
+        # 4. GIAI ĐOẠN 3: TỔNG HỢP LUẬN VĂN (SYNTHESIS)
+        # ---------------------------------------------------------
+        print(colored("   ↳ Bước 3: Tổng hợp luận văn (Synthesis)...", "green"))
+        
+        final_thesis_prompt = f"""
+        Tổng hợp các dữ liệu nghiên cứu sau thành một BÀI LUẬN CHUYÊN KHẢO về "{current_topic}".
+        Yêu cầu: Văn phong học thuật, sâu sắc, chặt chẽ.
+        
+        DỮ LIỆU THÔ:
+        {"\n".join(full_knowledge_base)}
+        """
+        final_thesis = await planner_llm.ainvoke(final_thesis_prompt)
+        final_output = final_thesis.content
+
+        # ---------------------------------------------------------
+        # 5. LƯU TRỮ & CỘNG ĐIỂM (XỨNG ĐÁNG)
+        # ---------------------------------------------------------
+        # Lưu vào não (Vector DB)
+        if 'vector_db' in globals() and vector_db:
             await asyncio.to_thread(
                 vector_db.add_texts,
                 texts=[final_output],
-                metadatas=[{"source": "Auto_Train", "agent": role_tag, "topic": current_topic}]
+                metadatas=[{"source": "PhD_Training", "agent": role_tag, "topic": current_topic, "quality": "Deep"}]
             )
 
-        # 5. GHI SỔ CÔNG VIỆC
+        # Ghi sổ công việc (Điểm cao hơn vì học sâu)
         clean_name = role_tag.replace("[","").replace("]","")
-        # Gọi hàm log đã có sẵn, truyền tham số chuẩn
         log_work_to_db(
             agent=clean_name,
-            task=f"Đào tạo: {current_topic}",
-            result=f"[{mode}] {final_output[:100]}...",
-            tool=f"Auto-{mode}",
-            xp_bonus=xp_earned
+            task=f"Nghiên cứu sâu: {current_topic}",
+            result=f"[LUẬN VĂN] {final_output[:200]}...",
+            tool="Deep-Protocol",
+            xp_bonus=150 # Thưởng 150 XP vì học rất kỹ
         )
+        
+        print(colored(f"🎓 [HOÀN TẤT] {role_tag} đã hoàn thành luận văn về {current_topic}.", "green", attrs=["bold"]))
 
     except Exception as e:
-        print(colored(f"❌ Lỗi đào tạo {role_tag}: {e}", "red"))
+        print(colored(f"❌ Lỗi đào tạo sâu {role_tag}: {e}", "red"))
 # 2. HÀM CHẤM ĐIỂM CHẤT LƯỢNG
+
 async def evaluate_quality(agent_name, content):
     """Giám khảo AI chấm điểm nội dung học (1-10)"""
     prompt = f"Chấm điểm nội dung của {agent_name} (Thang 1-10). Nội dung: {content[:500]}..."
