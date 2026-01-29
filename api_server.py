@@ -1100,26 +1100,56 @@ def get_latest_audit_report():
 
 @app.get("/api/costs")
 async def get_costs_api():
-    """API để main.html lấy dữ liệu báo cáo tài chính"""
+    """API lấy dữ liệu báo cáo tài chính (Đã đồng bộ đường dẫn DB)"""
     try:
-        with db_manager.get_connection() as conn:
-            # Lấy 50 giao dịch gần nhất
-            result = conn.execute(text("SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary FROM work_logs ORDER BY id DESC LIMIT 50"))
+        # 1. ÉP CỨNG ĐƯỜNG DẪN DB CLOUD (Giống main.py)
+        if os.path.exists("/var/data"):
+            db_path = "/var/data/ai_corp_projects.db"
+        else:
+            db_path = "ai_corp_projects.db"
+            
+        # Kiểm tra file có tồn tại không
+        if not os.path.exists(db_path):
+            return [] # Trả về mảng rỗng nếu chưa có DB
+
+        # 2. KẾT NỐI TRỰC TIẾP (Bỏ qua db_manager để tránh cache cũ)
+        # Dùng check_same_thread=False để tránh lỗi luồng
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row # Để lấy dữ liệu dạng Dictionary
+        c = conn.cursor()
+        
+        # 3. TRUY VẤN DỮ LIỆU
+        try:
+            # Lấy 50 dòng mới nhất
+            c.execute("""
+                SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary 
+                FROM work_logs 
+                ORDER BY id DESC LIMIT 50
+            """)
+            rows = c.fetchall()
+            
             logs = []
-            for row in result:
+            for row in rows:
                 logs.append({
-                    "timestamp": row[0],
-                    "agent": row[1],
-                    "task": row[2],
-                    "tool": row[3],
-                    "cost": row[4],
-                    "result": row[5]
+                    "timestamp": row["timestamp"],
+                    "agent": row["agent_name"], # Map đúng tên cột
+                    "task": row["task_content"],
+                    "tool": row["tool_used"],
+                    "cost_usd": row["cost"] if row["cost"] else 0.0, # Map sang cost_usd cho Frontend
+                    "result": row["result_summary"]
                 })
+                
+            conn.close()
             return logs
+            
+        except sqlite3.OperationalError:
+            # Nếu bảng chưa có -> Trả về rỗng
+            conn.close()
+            return []
+
     except Exception as e:
         print(f"Lỗi API Costs: {e}")
         return []
-
 # --- ENTRY POINT (CHẠY SERVER) ---
 
 if __name__ == "__main__":
