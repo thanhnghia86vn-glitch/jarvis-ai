@@ -774,8 +774,8 @@ def log_work_to_db(agent, task, result, tool="GPT-4", xp_bonus=50, start_time=No
         """, (
             datetime.now().strftime("%H:%M %d/%m"),
             agent,
-            str(task)[:100], 
-            str(result)[:200], 
+            str(task)[:500], 
+            str(result), 
             tool,
             cost
         ))
