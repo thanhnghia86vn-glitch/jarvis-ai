@@ -2677,8 +2677,34 @@ async def specialized_training_job(role_tag: str):
             current_xp = row[0] if row else 0
         except sqlite3.OperationalError:
             print(colored(f"⚠️ Bảng 'agent_status' chưa sẵn sàng. Đang chờ Server khởi tạo...", "yellow"))
-            conn.close()
-            return
+            # --- [FIX MẠNH MẼ]: Tự tạo bảng nếu chưa có ---
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS agent_status (
+                    role_tag TEXT PRIMARY KEY, 
+                    xp INTEGER DEFAULT 0, 
+                    current_topic TEXT, 
+                    last_updated TIMESTAMP
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS work_logs (
+                    id INTEGER PRIMARY KEY,
+                    timestamp TEXT, agent_name TEXT, task_content TEXT, 
+                    result_summary TEXT, tool_used TEXT, cost REAL, duration REAL
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS learning_logs (
+                    id INTEGER PRIMARY KEY, event_type TEXT, content TEXT, 
+                    agent_name TEXT, timestamp TIMESTAMP
+                )
+            """)
+            c.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp TIMESTAMP)")
+            conn.commit()
+            print(colored("✅ Đã tự động tạo xong các bảng dữ liệu!", "green"))
+            
+            # Sau khi tạo xong, mặc định XP = 0
+            current_xp = 0
             
         conn.close()
 
