@@ -749,12 +749,17 @@ def learn_knowledge(text: str):
     except Exception as e:
         return f"❌ Lỗi khi ghi nhớ kiến thức: {e}"
 
-def log_work_to_db(agent, task, result, tool="GPT-4"):
+def log_work_to_db(agent, task, result, tool="GPT-4", xp_bonus=50, start_time=None):
     """Hàm ghi chép công việc vào Sổ Cái & Cộng XP (Đã Fix lỗi Level)"""
     try:
+        # Nếu có start_time, tính duration
+       
         # Đường dẫn DB chuẩn
         db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
-        
+        duration = 0
+        if start_time:
+            duration = time.time() - start_time
+
         # Tính tiền
         cost = len(str(result)) * 0.00001 
         if "deepseek" in tool.lower(): cost = cost / 10 
@@ -2928,4 +2933,3 @@ if __name__ == "__main__":
         asyncio.run(main_loop())
     except KeyboardInterrupt:
         print("\n👋 Đã thoát hệ thống.")
-
