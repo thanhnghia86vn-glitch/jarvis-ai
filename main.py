@@ -2648,8 +2648,10 @@ CURRICULUM = {
 # 2. HÀM ĐÀO TẠO CHUYÊN SÂU (PHIÊN BẢN KẾ THỪA - COST OPTIMIZED)
 async def specialized_training_job(role_tag: str):
     """
-    PHIÊN BẢN 10.0: COST-OPTIMIZED INHERITANCE (QUY TẮC KẾ THỪA & TIẾT KIỆM)
-    - Nguyên tắc: "Không mua lại những gì đã có".
+    PHIÊN BẢN 11.0: COST-OPTIMIZED + AUTO-FIX DB
+    - Tự động tìm đúng đường dẫn DB (Cloud/Local).
+    - Tự động bỏ qua nếu bảng chưa được tạo (tránh crash).
+    - Giữ nguyên logic Kế thừa để tiết kiệm tiền.
     """
     print(colored(f"🛡️ [INHERITANCE CHECK] {role_tag} đang kiểm tra kho tri thức...", "cyan", attrs=["bold"]))
     
@@ -2657,85 +2659,97 @@ async def specialized_training_job(role_tag: str):
     if not topics: return
 
     try:
-        # A. LẤY XP HIỆN TẠI (Dùng SQLite trực tiếp cho nhanh, không cần db_manager phức tạp)
-        db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+        # 1. KẾT NỐI DB THÔNG MINH (AUTO-PATH)
+        # Ưu tiên đường dẫn Cloud, nếu không có thì dùng Local
+        if os.path.exists("/var/data"):
+            db_path = "/var/data/ai_corp_projects.db"
+        else:
+            db_path = "ai_corp_projects.db"
+            
+        # Kiểm tra file có tồn tại không
+        if not os.path.exists(db_path):
+            print(colored(f"⚠️ Cảnh báo: File DB chưa được tạo tại {db_path}. Bỏ qua phiên học này.", "yellow"))
+            return
+
         conn = sqlite3.connect(db_path, timeout=10)
         c = conn.cursor()
-        
-        c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,))
-        row = c.fetchone()
-        current_xp = row[0] if row else 0
+
+        # A. LẤY XP HIỆN TẠI (Kèm bẫy lỗi nếu bảng chưa có)
+        try:
+            c.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,))
+            row = c.fetchone()
+            current_xp = row[0] if row else 0
+        except sqlite3.OperationalError:
+            print(colored(f"⚠️ Bảng 'agent_status' chưa sẵn sàng. Đang chờ Server khởi tạo...", "yellow"))
+            conn.close()
+            return
+            
         conn.close()
 
-        # Chọn chủ đề dựa trên Level (Cứ 50 XP đổi 1 bài)
+        # Chọn chủ đề
         topic_index = int(current_xp / 50) % len(topics)
         current_topic = topics[topic_index]
         
-        # B. KIỂM TRA KẾ THỪA (QUAN TRỌNG)
+        # 2. KIỂM TRA KẾ THỪA
         existing_knowledge = ""
         is_found = False
         
-        # Tìm trong Vector DB
         try:
-            results = vector_db.similarity_search(current_topic, k=1)
-            if results:
-                existing_knowledge = results[0].page_content
-                is_found = True
-                print(colored(f"💡 [FOUND] Đã tìm thấy kiến thức cũ: {current_topic}", "green"))
+            # Kiểm tra vector_db có tồn tại không
+            if 'vector_db' in globals() and vector_db:
+                # Dùng asyncio.to_thread để không chặn luồng chính
+                results = await asyncio.to_thread(vector_db.similarity_search, current_topic, k=1)
+                if results:
+                    existing_knowledge = results[0].page_content
+                    is_found = True
+                    print(colored(f"💡 [FOUND] Đã tìm thấy kiến thức cũ: {current_topic}", "green"))
         except: pass
 
-        # C. QUYẾT ĐỊNH CHIẾN LƯỢC
+        # 3. QUYẾT ĐỊNH CHIẾN LƯỢC
         final_output = ""
         xp_earned = 0
         mode = "UNKNOWN"
 
-        # --- NHÁNH 1: KẾ THỪA (REVIEW MODE) - MIỄN PHÍ ---
+        # --- NHÁNH 1: KẾ THỪA (REVIEW) ---
         if is_found and existing_knowledge:
             mode = "REVIEW"
             print(colored("--> Chế độ: REVIEW (Ôn tập) - Tiết kiệm tiền.", "yellow"))
             
             if LLM_GEMINI_LOGIC:
-                review_prompt = f"""
-                Bạn là {role_tag}. Hãy ôn tập lại kiến thức cũ này:
-                ---
-                {existing_knowledge[:2000]}
-                ---
-                Yêu cầu: Tóm tắt lại và đề xuất 1 ý tưởng mới từ nó.
-                """
+                review_prompt = f"Ôn tập lại kiến thức này của {role_tag}: {existing_knowledge[:2000]}. Tóm tắt và đề xuất ý tưởng mới."
                 res = await LLM_GEMINI_LOGIC.ainvoke(review_prompt)
                 final_output = res.content
-                xp_earned = 20 # Điểm thấp hơn vì chỉ ôn tập
+                xp_earned = 20
             else:
                 final_output = existing_knowledge
 
-        # --- NHÁNH 2: NGHIÊN CỨU MỚI (RESEARCH MODE) - TỐN TIỀN ---
+        # --- NHÁNH 2: NGHIÊN CỨU MỚI (RESEARCH) ---
         else:
             mode = "RESEARCH"
-            print(colored("--> Chế độ: RESEARCH (Nghiên cứu mới) - Gọi Search API.", "magenta"))
+            print(colored("--> Chế độ: RESEARCH (Nghiên cứu mới).", "magenta"))
             
             raw_data = ""
-            # Ưu tiên Perplexity -> DeepSeek -> Gemini
             if LLM_PERPLEXITY:
                 res = await LLM_PERPLEXITY.ainvoke(f"Nghiên cứu mới nhất về: {current_topic}")
                 raw_data = res.content
-            elif LLM_DEEPSEEK:
-                res = await LLM_DEEPSEEK.ainvoke(f"Kiến thức chuyên sâu về: {current_topic}")
+            elif LLM_DEEPSEEK: # Fallback
+                res = await LLM_DEEPSEEK.ainvoke(f"Kiến thức về: {current_topic}")
                 raw_data = res.content
             
             final_output = raw_data
-            xp_earned = 50 # Điểm cao
+            xp_earned = 50
 
-        # D. LƯU KẾT QUẢ & CỘNG ĐIỂM
-        # 1. Lưu vào não (Vector DB)
-        if mode == "RESEARCH" and final_output:
-            vector_db.add_texts(
+        # 4. LƯU VÀO NÃO (Nếu là kiến thức mới)
+        if mode == "RESEARCH" and final_output and 'vector_db' in globals() and vector_db:
+            await asyncio.to_thread(
+                vector_db.add_texts,
                 texts=[final_output],
                 metadatas=[{"source": "Auto_Train", "agent": role_tag, "topic": current_topic}]
             )
 
-        # 2. Ghi sổ công việc (Để hiện lên Dashboard và cộng XP)
-        # Sử dụng hàm log_work_to_db có sẵn trong main.py
+        # 5. GHI SỔ CÔNG VIỆC
         clean_name = role_tag.replace("[","").replace("]","")
+        # Gọi hàm log đã có sẵn, truyền tham số chuẩn
         log_work_to_db(
             agent=clean_name,
             task=f"Đào tạo: {current_topic}",
@@ -2746,8 +2760,6 @@ async def specialized_training_job(role_tag: str):
 
     except Exception as e:
         print(colored(f"❌ Lỗi đào tạo {role_tag}: {e}", "red"))
-
-
 # 2. HÀM CHẤM ĐIỂM CHẤT LƯỢNG
 async def evaluate_quality(agent_name, content):
     """Giám khảo AI chấm điểm nội dung học (1-10)"""
