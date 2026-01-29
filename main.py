@@ -2659,17 +2659,13 @@ async def specialized_training_job(role_tag: str):
     if not topics: return
 
     try:
-        # 1. KẾT NỐI DB THÔNG MINH (AUTO-PATH)
-        # Ưu tiên đường dẫn Cloud, nếu không có thì dùng Local
+        # [FIX QUAN TRỌNG]: Ép cứng đường dẫn Cloud nếu có, in ra để debug
         if os.path.exists("/var/data"):
             db_path = "/var/data/ai_corp_projects.db"
+            print(colored(f"DEBUG: Main đang dùng DB Cloud: {db_path}", "blue"))
         else:
             db_path = "ai_corp_projects.db"
-            
-        # Kiểm tra file có tồn tại không
-        if not os.path.exists(db_path):
-            print(colored(f"⚠️ Cảnh báo: File DB chưa được tạo tại {db_path}. Bỏ qua phiên học này.", "yellow"))
-            return
+            print(colored(f"DEBUG: Main đang dùng DB Local: {db_path}", "blue"))
 
         conn = sqlite3.connect(db_path, timeout=10)
         c = conn.cursor()
