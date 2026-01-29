@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
+from main import set_system_busy
 # [QUAN TRỌNG]: Đã thêm LLM_SUPERVISOR và log_training_data
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JARVIS_BACKEND")
@@ -68,18 +69,20 @@ SERVER_READY = False
 
 try:
     from main import (
-        ai_app,                 # Bộ não LangGraph (Graph đã compile)
-        log_training_data,      # Hàm tự học
-        learn_knowledge,        # Hàm học kiến thức mới
-        ingest_docs_to_memory,  # Hàm đọc PDF
-        vector_db,              #Database Vector (Cho Cronjob)
-        LLM_GPT4,               # Model GPT-4
-        LLM_PERPLEXITY,         # Model Search
-        LLM_GEMINI_LOGIC,             # Model Google
-        LLM_GEMINI_VISION,          # [MỚI] Tổng quản để chia việc dự án lớn
-        CODER_PRIMARY
-    
-    ) 
+        ai_app, 
+        log_work_to_db,          # <--- Hàm chấm công chuẩn
+        auto_learning_cycle,     # <--- Vòng lặp tự học mới
+        morning_briefing_job,    # <--- Job đọc báo sáng mới
+        vector_db, 
+        LLM_GPT4, 
+        LLM_PERPLEXITY, 
+        LLM_GEMINI_LOGIC, 
+        LLM_GEMINI_VISION,
+        CODER_PRIMARY,
+        ingest_docs_to_memory,
+        learn_knowledge,
+        set_system_busy
+    )
 
     AI_AVAILABLE = True
     SERVER_READY = True
@@ -116,107 +119,6 @@ except ImportError:
     VOICE_AVAILABLE = False
     client = None
 
-CURRICULUM = {
-    # === NHÓM 1: QUẢN TRỊ & CHIẾN LƯỢC (C-SUITE) ===
-    "[ORCHESTRATOR]": [
-        "Mô hình OKRs vs KPIs trong quản trị doanh nghiệp AI",
-        "Chiến lược quản trị khủng hoảng (Crisis Management) thời gian thực",
-        "Tối ưu hóa quy trình ra quyết định dựa trên dữ liệu (Data-Driven Decision Making)",
-        "Tin tức công nghệ Deep Tech toàn cầu 24h qua"
-    ],
-    "[FINANCE]": [
-        "Các chiến lược Hedging rủi ro tỷ giá hối đoái",
-        "Ứng dụng Blockchain trong quản lý dòng tiền doanh nghiệp (Corporate Treasury)",
-        "Phân tích kỹ thuật nâng cao: Sóng Elliott và Fibonacci trong thị trường vàng/Crypto",
-        "Tối ưu hóa thuế cho doanh nghiệp số (Digital Tax Optimization)"
-    ],
-    "[HR_MANAGER]": [
-        "Xây dựng khung năng lực cốt lõi cho nhân sự AI & Blockchain",
-        "Tâm lý học hành vi trong giữ chân nhân tài Gen Z & Alpha",
-        "Tự động hóa quy trình Payroll và C&B bằng Smart Contracts",
-        "Luật lao động quốc tế về làm việc từ xa (Remote Work Compliance)"
-    ],
-
-    # === NHÓM 2: KỸ THUẬT PHẦN MỀM (CORE TECH) ===
-    "[CODER]": [
-        "Lập trình hiệu năng cao với Rust và Go cho Backend",
-        "Tối ưu hóa truy vấn Database (Indexing, Partitioning, Sharding)",
-        "Event-Driven Architecture với Apache Kafka và RabbitMQ",
-        "WebAssembly (Wasm): Tương lai của ứng dụng Web hiệu năng cao"
-    ],
-    "[ARCHITECT]": [
-        "Domain-Driven Design (DDD) trong thiết kế Microservices",
-        "Triển khai Serverless trên quy mô lớn (AWS Lambda/Google Cloud Run)",
-        "Mô hình CQRS và Event Sourcing trong hệ thống phân tán",
-        "Zero Trust Architecture: Kiến trúc bảo mật không tin cậy ai"
-    ],
-    "[SECURITY]": [
-        "Kỹ thuật Reverse Engineering mã độc nâng cao",
-        "Bảo mật API theo chuẩn OWASP Top 10 năm 2026",
-        "Post-Quantum Cryptography: Mã hóa chống máy tính lượng tử",
-        "DevSecOps: Tích hợp bảo mật vào quy trình CI/CD"
-    ],
-    "[DATA_ANALYST]": [
-        "Xây dựng RAG (Retrieval-Augmented Generation) cho LLM doanh nghiệp",
-        "Data Lakehouse: Kết hợp sức mạnh của Data Lake và Data Warehouse",
-        "Phân tích dữ liệu thời gian thực (Real-time Analytics) với Apache Flink",
-        "Mô hình dự báo chuỗi thời gian (Time-series Forecasting) bằng Deep Learning"
-    ],
-
-    # === NHÓM 3: PHẦN CỨNG & IOT (HARDWARE) ===
-    "[HARDWARE]": [
-        "Thiết kế mạch PCB cao tần (High-speed PCB Design)",
-        "Edge AI: Chạy mô hình AI trực tiếp trên vi điều khiển (TinyML)",
-        "Công nghệ Pin thế hệ mới và quản lý năng lượng (Power Management)",
-        "Lập trình FPGA cho xử lý tín hiệu số"
-    ],
-    "[IOT]": [
-        "Mạng lưới vạn vật (Mesh Networking) với LoRaWAN và Zigbee",
-        "Digital Twins: Bản sao số trong công nghiệp sản xuất",
-        "Giao thức MQTT v5 và tối ưu hóa băng thông cho thiết bị IoT",
-        "Bảo mật thiết bị IoT ở cấp độ phần cứng (Hardware Security Modules)"
-    ],
-
-    # === NHÓM 4: SÁNG TẠO & MARKETING (GROWTH) ===
-    "[MARKETING]": [
-        "Neuromarketing: Ứng dụng khoa học não bộ vào quảng cáo",
-        "Programmatic Advertising: Quảng cáo lập trình hóa tự động",
-        "Chiến lược Growth Hacking dựa trên Phễu AARRR",
-        "Tối ưu hóa tìm kiếm bằng giọng nói (Voice Search SEO)"
-    ],
-    "[ARTIST]": [
-        "Quy trình sản xuất Video Generative AI (Runway Gen-3, Sora)",
-        "Thiết kế trải nghiệm người dùng không gian (Spatial UX cho VR/AR)",
-        "Lý thuyết màu sắc nâng cao và tâm lý học hình ảnh",
-        "Kỹ thuật Prompt Engineering chuyên sâu cho Midjourney v6"
-    ],
-    "[CONTENT_WRITER]": [
-        "Kỹ thuật Storytelling: Cấu trúc hành trình anh hùng trong B2B",
-        "SEO Semantic Search và Topic Clusters (Cụm chủ đề)",
-        "Copywriting thôi miên: Các mẫu câu chốt sale tâm lý học",
-        "Chiến lược nội dung đa kênh (Omnichannel Content Strategy)"
-    ],
-
-    # === NHÓM 5: NGHIỆP VỤ BỔ TRỢ (SUPPORT) ===
-    "[LEGAL]": [
-        "Khung pháp lý về AI và bản quyền tác giả toàn cầu",
-        "Hợp đồng thông minh (Smart Contract) và tính pháp lý",
-        "Tuân thủ GDPR và Nghị định 13 bảo vệ dữ liệu tại Việt Nam",
-        "Giải quyết tranh chấp thương mại điện tử xuyên biên giới"
-    ],
-    "[RESEARCH]": [
-        "Xu hướng công nghệ sinh học (Biotech) kết hợp AI",
-        "Vật liệu mới (Graphene, Carbon Nanotubes) trong công nghiệp",
-        "Tác động của 6G lên nền kinh tế số tương lai",
-        "Nghiên cứu hành vi tiêu dùng bền vững (Sustainability)"
-    ],
-    "[SALES]": [
-        "Mô hình bán hàng Challenger Sale (Người thách thức)",
-        "Account-Based Marketing (ABM) cho khách hàng doanh nghiệp lớn",
-        "Kỹ thuật đàm phán cấp cao (High-stakes Negotiation)",
-        "Ứng dụng CRM AI để dự đoán tỷ lệ chốt đơn (Win Rate Prediction)"
-    ]
-}
 # ==========================================
 # 1. DATABASE MANAGER
 # ==========================================
@@ -283,39 +185,32 @@ class DatabaseManager:
                         duration REAL            -- Mất bao nhiêu giây
                     )
                 """))
-                
-                # 2. KIỂM TRA & TẠO DỮ LIỆU MẪU
-                # Không dùng cursor() nữa, dùng thẳng conn.execute
-                result = conn.execute(text("SELECT count(*) FROM agent_status"))
-                count = result.fetchone()[0]
-                
-                if count == 0:
-                    print(colored("🌱 DATABASE TRỐNG - ĐANG KHỞI TẠO ĐỘI NGŨ AGENT...", "yellow"))
-                    now = datetime.now()
-                    
-                    # Lặp qua danh sách Agent
-                    for role in CURRICULUM.keys():
-                        # LƯU Ý: Thay dấu ? bằng :param (Cú pháp của SQLAlchemy)
-                        conn.execute(text("""
-                            INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
-                            VALUES (:role, 0, 'Đang chờ lệnh (Idle)', :time)
-                        """), {"role": role, "time": now})
-                        
-                    conn.commit()
-                    print(colored("✅ Đã tạo hồ sơ cho 15 chuyên gia AI.", "green"))
-                else:
-                    print(colored("✅ Database đã có dữ liệu.", "green"))
-                    
-                # Nhớ commit cuối cùng để chắc chắn lưu
+                # Bảng nhật ký học tập (Meta-Cognition)
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS learning_logs (
+                        id INTEGER PRIMARY KEY,
+                        event_type TEXT,
+                        content TEXT,
+                        agent_name TEXT,
+                        timestamp TIMESTAMP
+                    )
+                """))
+                # Bảng dự án (Lưu báo cáo)
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS projects (
+                        id TEXT PRIMARY KEY,
+                        name TEXT,
+                        history TEXT,
+                        timestamp TIMESTAMP
+                    )
+                """))
                 conn.commit()
+                print(colored("✅ Database đã sẵn sàng.", "green"))
 
         except Exception as e:
             print(colored(f"❌ Lỗi khởi tạo DB: {e}", "red"))
-            # In ra lỗi chi tiết để debug nếu cần
-            import traceback
-            traceback.print_exc()
-db_manager = DatabaseManager()
 
+db_manager = DatabaseManager()
 # ==========================================
 # 2. WEBSOCKET MANAGER
 # ==========================================
@@ -345,261 +240,8 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # ==========================================
-# 3. BACKGROUND JOBS (AI TRAINING & CRON)
+# 3. PIPELINE DỰ ÁN LỚN
 # ==========================================
-def calculate_level(xp: int) -> int:
-    # Công thức đơn giản: Cứ 100 XP là lên 1 Level. Level khởi đầu là 1.
-    return int(xp / 100) + 1
-
-# Cập nhật hàm đào tạo
-async def specialized_training_job(role_tag: str):
-    """
-    PHIÊN BẢN 10.0: COST-OPTIMIZED INHERITANCE (QUY TẮC KẾ THỪA & TIẾT KIỆM)
-    - Nguyên tắc: "Không mua lại những gì đã có".
-    - Bước 1: Kiểm tra Kho tri thức (Vector DB).
-    - Bước 2: 
-        + Nếu đã có kiến thức cũ (< 7 ngày) -> ÔN TẬP (Review Mode) -> Tốn 0đ API Search.
-        + Nếu chưa có hoặc quá cũ -> MUA MỚI (Research Mode) -> Gọi API.
-    """
-    print(colored(f"🛡️ [INHERITANCE CHECK] {role_tag} đang kiểm tra kho tri thức...", "cyan", attrs=["bold"]))
-    
-    topics = CURRICULUM.get(role_tag, [])
-    if not topics: return
-
-    try:
-        # 1. CHỌN CHỦ ĐỀ
-        current_xp = 0
-        with db_manager.get_connection() as conn:
-            row = conn.execute("SELECT xp FROM agent_status WHERE role_tag = ?", (role_tag,)).fetchone()
-            if row: current_xp = row[0]
-
-        topic_index = int(current_xp / 50) % len(topics)
-        current_topic = topics[topic_index]
-        
-        # 2. KIỂM TRA KẾ THỪA (QUAN TRỌNG NHẤT)
-        # Tìm xem trong DB đã có bài nào về chủ đề này chưa?
-        existing_knowledge = ""
-        is_fresh = False
-        
-        if MEMORY_AVAILABLE and vector_db:
-            # Tìm kiếm trong vector db xem có gì liên quan không
-            results = await run_in_threadpool(lambda: vector_db.similarity_search(current_topic, k=1))
-            
-            if results:
-                doc = results[0]
-                existing_knowledge = doc.page_content
-                # Kiểm tra xem kiến thức này cũ hay mới (Giả sử ta lưu timestamp trong metadata)
-                # (Ở code trước ta chưa lưu kỹ timestamp, nhưng từ giờ sẽ lưu)
-                # Tạm thời coi như nếu tìm thấy là "Kế thừa"
-                print(colored(f"💡 [FOUND] Đã tìm thấy kiến thức kế thừa về: {current_topic}", "green"))
-                is_fresh = True # Giả lập là tìm thấy
-
-        # 3. QUYẾT ĐỊNH CHIẾN LƯỢC (RẼ NHÁNH TIỀN BẠC)
-        final_output = ""
-        xp_earned = 0
-        mode = "UNKNOWN"
-
-        # === NHÁNH A: KẾ THỪA (TIẾT KIỆM TIỀN) ===
-        # Nếu đã có kiến thức rồi, ta chỉ dùng LLM (Gemini) để "Xào nấu" lại (Review), không tốn tiền Search (Perplexity)
-        if is_fresh and existing_knowledge:
-            mode = "REVIEW (Ôn Tập Kế Thừa)"
-            print(colored(f"--> Chế độ: {mode} - Không tốn phí tìm kiếm.", "yellow"))
-            
-            if LLM_GEMINI_LOGIC:
-                # Prompt Ôn tập: Dựa trên cái cũ để sinh ra góc nhìn mới
-                review_prompt = f"""
-                Bạn là Chuyên gia {role_tag}.
-                Đây là kiến thức chúng ta đã học được trong quá khứ về "{current_topic}":
-                ---
-                {existing_knowledge[:3000]}
-                ---
-                
-                NHIỆM VỤ: KẾ THỪA VÀ PHÁT TRIỂN (INHERIT & EVOLVE).
-                Không cần tìm kiếm thông tin mới. Hãy dựa trên kiến thức cũ này để:
-                1. Tóm tắt lại các điểm cốt lõi.
-                2. Đặt ra 1 câu hỏi phản biện mới để thử thách tư duy.
-                3. Đề xuất 1 ý tưởng ứng dụng mới từ kiến thức cũ này.
-                
-                Mục tiêu: Củng cố bộ nhớ mà không cần nạp thêm dữ liệu thô.
-                """
-                try:
-                    res = await LLM_GEMINI_LOGIC.ainvoke(review_prompt)
-                    final_output = res.content
-                    xp_earned = 20 # Điểm ôn tập thấp hơn điểm nghiên cứu mới
-                except:
-                    final_output = existing_knowledge
-            else:
-                final_output = existing_knowledge
-
-        # === NHÁNH B: KHÁM PHÁ MỚI (CHẤP NHẬN CHI PHÍ) ===
-        # Chỉ chạy khi trong đầu rỗng tuếch về chủ đề này
-        else:
-            mode = "RESEARCH (Nghiên cứu Mới)"
-            print(colored(f"--> Chế độ: {mode} - Cần tìm kiếm dữ liệu mới.", "magenta"))
-            
-            # (Phần này giữ nguyên logic Research cũ của ngài: Perplexity -> Gemini)
-            raw_data = ""
-            if LLM_PERPLEXITY:
-                try:
-                    res = await LLM_PERPLEXITY.ainvoke(f"Nghiên cứu chuyên sâu về: {current_topic}")
-                    raw_data = res.content
-                except: pass
-            
-            if raw_data and LLM_GEMINI_LOGIC:
-                analyze_prompt = f"Phân tích chuyên sâu về {current_topic} dựa trên: {raw_data[:4000]}"
-                try:
-                    res = await LLM_GEMINI_LOGIC.ainvoke(analyze_prompt)
-                    final_output = res.content
-                    xp_earned = 50 # Điểm cao vì học cái mới
-                except: final_output = raw_data
-            else:
-                final_output = raw_data
-
-        # 4. LƯU KẾT QUẢ (CHỈ LƯU NẾU LÀ KIẾN THỨC MỚI HOẶC GÓC NHÌN MỚI)
-        if MEMORY_AVAILABLE and vector_db and final_output:
-            # Nếu là Review, ta có thể không cần lưu lại để tránh rác, hoặc lưu đè
-            # Ở đây ta lưu thêm để làm dày dữ liệu cho Fine-tuning sau này
-            await run_in_threadpool(lambda: vector_db.add_texts(
-                texts=[final_output],
-                metadatas=[{
-                    "source": "Inheritance_Cycle", 
-                    "agent": role_tag, 
-                    "topic": current_topic,
-                    "mode": mode,
-                    "timestamp": datetime.now().isoformat()
-                }]
-            ))
-
-        # 5. CẬP NHẬT TRẠNG THÁI
-        new_xp = current_xp + xp_earned
-        with db_manager.get_connection() as conn:
-            c = conn.cursor()
-            c.execute("""
-                INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated)
-                VALUES (?, ?, ?, ?)
-            """, (role_tag, new_xp, f"{mode}: {current_topic}", datetime.now()))
-            conn.commit()
-            
-        print(colored(f"✅ [{mode}] {role_tag} +{xp_earned} XP | Tổng: {new_xp}", "green"))
-
-    except Exception as e:
-        print(colored(f"❌ Lỗi: {e}", "red"))    
-
-async def morning_briefing_job():
-    """
-    PHIÊN BẢN 3.0: Tương thích PostgreSQL + Tự nhận thức (Meta-Cognition)
-    """
-    role_tag = "[ORCHESTRATOR]"
-    print(colored(f"\n⏰ [CRON JOB] {role_tag} đang thực hiện quét tin tức buổi sáng...", "cyan", attrs=["bold"]))
-    
-    if not AI_AVAILABLE: # or not LLM_PERPLEXITY (Bỏ check Perplexity nếu muốn chạy test với Gemini)
-        print(colored("⚠️ Bỏ qua Cron Job vì AI Module chưa sẵn sàng.", "yellow"))
-        return
-
-    # Lấy chủ đề từ Giáo Trình chung
-    topics = CURRICULUM.get(role_tag, ["Tin tức AI mới nhất", "Thị trường công nghệ 2026"])
-    report_buffer = []
-    
-    for topic in topics:
-        try:
-            print(colored(f"--> {role_tag} đang đọc: {topic}...", "white"))
-            
-            # Gọi AI (Ưu tiên Perplexity, Fallback sang Gemini/GPT nếu cần)
-            # Giả sử dùng LLM chính nếu Perplexity chưa cấu hình
-            llm_to_use = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI_LOGIC
-            res = await llm_to_use.ainvoke(topic)
-            content = res.content
-            
-            # Lưu vào bộ nhớ Vector (RAG)
-            if MEMORY_AVAILABLE and vector_db:
-                await run_in_threadpool(lambda: vector_db.add_texts(
-                    texts=[content],
-                    metadatas=[{"source": "Morning_Briefing", "agent": role_tag, "topic": topic}]
-                ))
-            report_buffer.append(f"### {topic}\n{content[:800]}...") 
-        except Exception as e:
-            print(colored(f"⚠️ Lỗi đọc tin '{topic}': {e}", "yellow"))
-
-    # Tạo báo cáo & Cập nhật Database
-    if report_buffer:
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        full_content = f"# 🌅 BẢN TIN SÁNG {today_str}\n\n" + "\n\n".join(report_buffer)
-        
-        # ID đặc biệt cho báo cáo (VD: BRIEFING_20260125)
-        report_id = f"BRIEFING_{datetime.now().strftime('%Y%m%d')}"
-
-        try:
-            with db_manager.get_connection() as conn:
-                # ---------------------------------------------------------
-                # 1. LƯU BÁO CÁO VÀO DB (QUAN TRỌNG NHẤT ĐỂ KHÔNG MẤT FILE)
-                # ---------------------------------------------------------
-                # Đóng gói nội dung thành format tin nhắn để Dashboard đọc được
-                history_json = json.dumps([{
-                    "type": "ai", 
-                    "data": {"content": full_content}
-                }])
-                
-                # Dùng DELETE + INSERT để đảm bảo nếu chạy lại không bị lỗi trùng ID
-                conn.execute(text("DELETE FROM projects WHERE id = :id"), {"id": report_id})
-                
-                project_query = text("""
-                    INSERT INTO projects (id, name, history, timestamp)
-                    VALUES (:id, :name, :history, :time)
-                """)
-                conn.execute(project_query, {
-                    "id": report_id,
-                    "name": f"Báo cáo sáng {today_str}",
-                    "history": history_json,
-                    "time": datetime.now()
-                })
-                
-                # ---------------------------------------------------------
-                # 2. CẬP NHẬT ĐIỂM XP (GAMIFICATION)
-                # ---------------------------------------------------------
-                # A. Lấy XP hiện tại
-                xp_query = text("SELECT xp FROM agent_status WHERE role_tag = :role")
-                row = conn.execute(xp_query, {"role": role_tag}).fetchone()
-                new_xp = (row[0] if row else 0) + 100
-                
-                # B. Cập nhật trạng thái Agent
-                conn.execute(text("DELETE FROM agent_status WHERE role_tag = :role"), {"role": role_tag})
-                
-                status_query = text("""
-                    INSERT INTO agent_status (role_tag, xp, current_topic, last_updated) 
-                    VALUES (:role, :xp, :topic, :time)
-                """)
-                conn.execute(status_query, {
-                    "role": role_tag, 
-                    "xp": new_xp, 
-                    "topic": f"Hoàn thành bản tin {today_str}", 
-                    "time": datetime.now()
-                })
-
-                # ---------------------------------------------------------
-                # 3. GHI NHẬT KÝ TỰ NHẬN THỨC (META-COGNITION)
-                # ---------------------------------------------------------
-                log_query = text("""
-                    INSERT INTO learning_logs (event_type, content, agent_name, timestamp)
-                    VALUES (:type, :content, :agent, :time)
-                """)
-                conn.execute(log_query, {
-                    "type": "CREATED",
-                    "content": f"Đã tổng hợp và lưu trữ vĩnh viễn Bản tin sáng {today_str}.",
-                    "agent": role_tag,
-                    "time": datetime.now()
-                })
-                
-                # CHỐT ĐƠN (COMMIT) 1 LẦN DUY NHẤT
-                conn.commit()
-                print(colored(f"✅ [DATABASE] Đã lưu báo cáo sáng vào hệ thống vĩnh viễn!", "green"))
-                
-        except Exception as e:
-            print(colored(f"❌ Lỗi Lưu Trữ Job Sáng: {e}", "red"))
-
-# ==========================================
-# 3. PIPELINE DỰ ÁN LỚN (ĐÃ TỐI ƯU & HỢP NHẤT)
-# ==========================================
-
 async def run_architect_phase(project_request: str, thread_id: str):
     """
     Bước 1: Vẽ sơ đồ và kế hoạch thi công.
@@ -726,34 +368,31 @@ async def lifespan(app: FastAPI):
 
     # 2. Khởi tạo Database
     db_manager.init_db()
-    
+
+      
     # Tạo thư mục cần thiết
     for d in [UPLOAD_DIR, "static", "templates", "projects"]:
         if not os.path.exists(d): os.makedirs(d)
         
-    # --- SCHEDULER SETUP (QUAN TRỌNG) ---
+    # 3. KÍCH HOẠT JOB BÁO CÁO SÁNG (Từ Main)
     scheduler = AsyncIOScheduler()
     scheduler.add_job(morning_briefing_job, 'cron', hour=7, minute=0)
     scheduler.start()
     
-    # --- 3. KÍCH HOẠT "HỌC VIỆN CA ĐÊM" (TÍNH NĂNG MỚI) ---
-    # Thay vì dùng scheduler cứng nhắc, ta chạy Background Task linh hoạt
-    # Để nó tự động học 60p -> nghỉ -> xoay vòng -> tự dừng khi có khách
+    # 4. KÍCH HOẠT CHẾ ĐỘ TỰ HỌC (Từ Main)
     print("🎓 [SYSTEM] Kích hoạt chế độ 'Adaptive Learning' (Học luân phiên)...")
-    learning_task = asyncio.create_task(adaptive_learning_scheduler())
+    learning_task = asyncio.create_task(auto_learning_cycle())
     yield # Server chạy tại đây
     
     # --- SHUTDOWN ---
     scheduler.shutdown()
-    # Hủy tác vụ học tập nhẹ nhàng
     print("💤 [SYSTEM] Đang giải tán lớp học...")
     learning_task.cancel()
-    try:
-        await learning_task
-    except asyncio.CancelledError:
-        print("✅ [SYSTEM] Đã dừng chế độ học tập an toàn.")
-        
+    try: await learning_task
+    except asyncio.CancelledError: pass
     logger.info("💤 SYSTEM SHUTDOWN.")
+        
+    
 
 app = FastAPI(
     title="J.A.R.V.I.S Neural Backend",
@@ -768,7 +407,6 @@ app.add_middleware(
     allow_methods=["*"], 
     allow_headers=["*"]
 )
-
 # 2. Thiết lập đường dẫn tĩnh (Auto-Create Folder)
 base_dir = os.path.abspath(os.path.dirname(__file__))
 static_dir = os.path.join(base_dir, 'static')
@@ -807,6 +445,14 @@ class TTSRequest(BaseModel):
 # ==========================================
 # 5. API ENDPOINTS
 # ==========================================
+async def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    """Middleware kiểm tra bảo mật"""
+    # Logic: Nếu có gửi key thì check, nếu không gửi (Dev mode) thì bỏ qua hoặc chặn tùy CEO
+    if x_api_key and x_api_key != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="⛔ SAI MẬT MÃ QUÂN SỰ (WRONG API KEY)")
+    return x_api_key
+
+
 @app.get("/admin")
 async def admin_page(request: Request):
     # Truyền thêm biến api_key sang giao diện HTML
@@ -831,14 +477,6 @@ async def dashboard_page(request: Request):
 @app.get("/index")
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
-
-async def verify_api_key(x_api_key: Optional[str] = Header(None)):
-    """Middleware kiểm tra bảo mật"""
-    # Logic: Nếu có gửi key thì check, nếu không gửi (Dev mode) thì bỏ qua hoặc chặn tùy CEO
-    if x_api_key and x_api_key != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="⛔ SAI MẬT MÃ QUÂN SỰ (WRONG API KEY)")
-    return x_api_key
 
 @app.get("/api/agents")
 async def get_agents_status():
@@ -958,10 +596,7 @@ async def download_database():
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
-    """
-    SMART CHAT V4: STABLE & ERROR-PROOF
-    Phiên bản sửa lỗi 400 OpenAI và tối ưu quy trình xử lý.
-    """
+    set_system_busy()
     if not AI_AVAILABLE:
         return {"reply": "⚠️ Hệ thống AI đang khởi động. Vui lòng đợi 30s."}
 
@@ -1255,70 +890,12 @@ CURRENT_LEARNER_INDEX = 0
 IS_BUSY = False  # Trạng thái bận rộn của hệ thống
 LAST_ACTIVITY_TIME = datetime.now()
 
-async def adaptive_learning_scheduler():
-    """
-    Hệ thống lập lịch học tập thông minh.
-    Chạy ngầm (Background Loop) song song với Server.
-    """
-    global CURRENT_LEARNER_INDEX, IS_BUSY
-    
-    print("🎓 [SCHEDULER] Đã kích hoạt Học viện Agent tự động.")
-    
-    while True:
-        # 1. Kiểm tra trạng thái rảnh rỗi (Idle Check)
-        # Nếu không có lệnh mới trong 5 phút -> Coi như rảnh
-        idle_duration = (datetime.now() - LAST_ACTIVITY_TIME).total_seconds()
-        if idle_duration > 300: 
-            IS_BUSY = False
-        else:
-            IS_BUSY = True
-
-        # 2. Logic điều phối
-        if IS_BUSY:
-            print("🚧 [SYSTEM] Hệ thống đang bận dự án. Tạm hoãn việc học.", end="\r")
-            await asyncio.sleep(60) # Chờ 1 phút rồi check lại
-            continue
-
-        # 3. Bắt đầu phiên học 60 phút
-        agent_name = LEARNING_QUEUE[CURRENT_LEARNER_INDEX]
-        print(f"\n📚 [LEARNING] Bắt đầu phiên học 60p cho Agent: {agent_name}")
-        
-        # Giả lập quá trình học (Chia nhỏ thành 60 lần 1 phút để dễ ngắt ngang)
-        for minute in range(60):
-            # KIỂM TRA NGẮT NGANG: Nếu CEO đột nhiên ra lệnh
-            if IS_BUSY: 
-                print(f"🛑 [INTERRUPT] Ngừng phiên học của {agent_name} để phục vụ CEO!")
-                break 
-            
-            # Thực hiện hành động học (Ví dụ: Đọc 1 trang tài liệu ngẫu nhiên trong DB)
-            # await self_study(agent_name) 
-            
-            print(f"⏳ {agent_name} đang học... ({minute+1}/60 phút)", end="\r")
-            await asyncio.sleep(60) # Học 1 phút
-
-        # 4. Kết thúc phiên -> Xoay vòng
-        if not IS_BUSY: # Chỉ chuyển người nếu học trọn vẹn (hoặc chấp nhận học dở)
-            print(f"✅ [DONE] {agent_name} đã hoàn thành phiên học.")
-            # Ghi nhật ký tự nhận thức
-            # log_system_activity("LEARNED", f"{agent_name} hoàn thành 60p tự nghiên cứu.", "SCHEDULER")
-            
-            # Chuyển sang người tiếp theo
-            CURRENT_LEARNER_INDEX = (CURRENT_LEARNER_INDEX + 1) % len(LEARNING_QUEUE)
-        
-        # Nghỉ 1 chút trước khi bắt đầu ca sau
-        await asyncio.sleep(10)
-
 # --- TÍCH HỢP VÀO STARTUP ---
 @app.on_event("startup")
 async def start_scheduler():
     # Chạy loop này ở chế độ nền (không chặn API)
-    asyncio.create_task(adaptive_learning_scheduler())
+    asyncio.create_task(auto_learning_cycle())
 
-# --- CẬP NHẬT TRẠNG THÁI KHI CÓ LỆNH ---
-# Trong hàm chat_endpoint, thêm dòng này:
-# global LAST_ACTIVITY_TIME, IS_BUSY
-# LAST_ACTIVITY_TIME = datetime.now()
-# IS_BUSY = True
 
 @app.post("/api/learn")
 async def api_learn(request: LearnRequest, x_api_key: str = Header(None)):
