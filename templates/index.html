@@ -3,156 +3,198 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI COST AUDIT - KIỂM SOÁT TÀI CHÍNH</title>
+    <title>J.A.R.V.I.S - FINANCIAL & KNOWLEDGE AUDIT</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script> <style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
         body { background-color: #0f172a; color: #cbd5e1; font-family: 'Segoe UI', monospace; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; }
         .neon-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
         .cost-negative { color: #f87171; text-shadow: 0 0 5px rgba(248, 113, 113, 0.5); }
         
-        /* Scrollbar đẹp */
+        /* Scrollbar */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
 
-        table tbody tr:hover { background-color: rgba(59, 130, 246, 0.1); cursor: pointer; }
+        /* Hover Effect cho bảng */
+        table tbody tr:hover { background-color: rgba(59, 130, 246, 0.15) !important; cursor: pointer; transform: scale(1.002); transition: all 0.2s; }
 
         /* Modal Styles */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); }
-        .modal-content { background-color: #1e293b; margin: 5% auto; padding: 20px; border: 1px solid #475569; width: 80%; max-width: 900px; border-radius: 10px; color: #e2e8f0; }
-        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
-        .close:hover { color: #fff; }
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 { color: #60a5fa; margin-top: 1em; margin-bottom: 0.5em; font-weight: bold; }
-        .markdown-body p { margin-bottom: 1em; line-height: 1.6; }
-        .markdown-body code { background: #334155; padding: 2px 5px; border-radius: 4px; color: #fca5a5; }
-        .markdown-body pre { background: #0f172a; padding: 10px; border-radius: 8px; overflow-x: auto; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(8px); }
+        .modal-content { background-color: #1e293b; margin: 2% auto; padding: 25px; border: 1px solid #3b82f6; width: 90%; max-width: 1000px; border-radius: 16px; color: #e2e8f0; box-shadow: 0 0 50px rgba(59, 130, 246, 0.3); }
+        .close { color: #94a3b8; float: right; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .close:hover { color: #ef4444; }
+        
+        /* Markdown Styles trong Modal */
+        .markdown-body { font-family: sans-serif; font-size: 15px; line-height: 1.7; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { color: #60a5fa; margin-top: 1.5em; margin-bottom: 0.8em; font-weight: 700; border-bottom: 1px solid #334155; padding-bottom: 5px; }
+        .markdown-body p { margin-bottom: 1.2em; }
+        .markdown-body ul { list-style-type: disc; padding-left: 20px; margin-bottom: 1.2em; }
+        .markdown-body code { background: #334155; padding: 2px 6px; border-radius: 4px; color: #fca5a5; font-family: monospace; }
+        .markdown-body pre { background: #020617; padding: 15px; border-radius: 8px; overflow-x: auto; border: 1px solid #1e293b; margin-bottom: 1.5em; }
+        .markdown-body strong { color: #e2e8f0; }
+        .markdown-body blockquote { border-left: 4px solid #3b82f6; padding-left: 15px; color: #94a3b8; font-style: italic; background: rgba(59,130,246,0.05); padding: 10px; border-radius: 0 4px 4px 0; }
     </style>
 </head>
-<body class="min-h-screen p-6">
-
-    <div class="flex justify-between items-center mb-8 border-b border-slate-700 pb-6">
-        <div class="flex items-center gap-4">
-            <div class="p-3 bg-slate-800 rounded-lg border border-slate-600">
-                <i class="fas fa-file-invoice-dollar text-4xl text-yellow-500"></i>
+<body class="min-h-screen p-6 bg-[url('https://wallpapers.com/images/hd/hi-tech-background-1920-x-1080-77983l082d34y303.jpg')] bg-cover bg-fixed bg-no-repeat">
+    <div class="absolute inset-0 bg-slate-900/90 z-0"></div> <div class="relative z-10 container mx-auto max-w-7xl">
+        <div class="flex justify-between items-center mb-8 border-b border-slate-700 pb-6">
+            <div class="flex items-center gap-5">
+                <div class="p-4 bg-slate-800/80 rounded-xl border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                    <i class="fas fa-network-wired text-4xl text-blue-400 animate-pulse"></i>
+                </div>
+                <div>
+                    <h1 class="text-4xl font-bold text-white tracking-widest neon-text">AUDIT CENTER</h1>
+                    <p class="text-sm text-blue-300 font-mono mt-1"><i class="fas fa-shield-alt mr-1"></i> AI CORPORATION // LEVEL 10 CLEARANCE</p>
+                </div>
             </div>
-            <div>
-                <h1 class="text-3xl font-bold text-white tracking-widest neon-text">FINANCIAL AUDIT</h1>
-                <p class="text-xs text-slate-400 font-mono">SYSTEM: AI CORPORATION // MODULE: COST TRACKING</p>
+            <div class="text-right">
+                <div class="text-green-400 font-bold text-xs uppercase bg-green-900/30 px-3 py-1 rounded-full border border-green-500/30 inline-block mb-1">
+                    <i class="fas fa-satellite-dish mr-1 animate-ping text-[8px]"></i> LIVE CONNECTION
+                </div>
+                <div id="clock" class="text-slate-400 font-mono text-2xl font-bold">--:--:--</div>
             </div>
         </div>
-        <div class="text-right">
-            <div class="text-green-400 font-bold text-xs uppercase"><i class="fas fa-link"></i> API LINKED</div>
-            <div id="clock" class="text-slate-500 font-mono text-xl">--:--:--</div>
-        </div>
-    </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="glass-panel p-6 border-l-4 border-red-500 relative overflow-hidden">
-            <div class="absolute right-4 top-4 text-red-500/20 text-6xl"><i class="fas fa-coins"></i></div>
-            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng chi phí (Total Cost)</h3>
-            <p id="total-cost" class="text-4xl font-bold text-white mt-2 cost-negative">$0.000000</p>
-            <p class="text-xs text-slate-500 mt-1">Cập nhật theo thời gian thực</p>
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="glass-panel p-6 border-l-4 border-red-500 relative overflow-hidden group hover:bg-slate-800/80 transition">
+                <div class="absolute right-4 top-4 text-red-500/10 text-7xl group-hover:text-red-500/20 transition duration-500"><i class="fas fa-chart-line"></i></div>
+                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">TỔNG ĐẦU TƯ (COST)</h3>
+                <p id="total-cost" class="text-4xl font-bold text-white mt-2 cost-negative font-mono">$0.000000</p>
+                <div class="mt-4 h-1 w-full bg-slate-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-red-500 w-3/4 animate-pulse"></div>
+                </div>
+            </div>
 
-        <div class="glass-panel p-6 border-l-4 border-blue-500 relative overflow-hidden">
-            <div class="absolute right-4 top-4 text-blue-500/20 text-6xl"><i class="fas fa-server"></i></div>
-            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng Giao Dịch</h3>
-            <p id="total-tx" class="text-4xl font-bold text-white mt-2">0</p>
-            <p class="text-xs text-slate-500 mt-1">Số lượng tác vụ đã xử lý</p>
-        </div>
+            <div class="glass-panel p-6 border-l-4 border-blue-500 relative overflow-hidden group hover:bg-slate-800/80 transition">
+                <div class="absolute right-4 top-4 text-blue-500/10 text-7xl group-hover:text-blue-500/20 transition duration-500"><i class="fas fa-database"></i></div>
+                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">TỔNG TÁC VỤ (TASKS)</h3>
+                <p id="total-tx" class="text-4xl font-bold text-white mt-2 font-mono">0</p>
+                <p class="text-xs text-blue-400 mt-2"><i class="fas fa-arrow-up mr-1"></i>Đang tăng trưởng</p>
+            </div>
 
-        <div class="glass-panel p-6 border-l-4 border-purple-500 relative overflow-hidden">
-            <div class="absolute right-4 top-4 text-purple-500/20 text-6xl"><i class="fas fa-crown"></i></div>
-            <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Giao dịch gần nhất</h3>
-            <p id="last-agent" class="text-2xl font-bold text-white mt-2">---</p>
-            <p id="last-cost" class="text-xs text-purple-400 mt-1 font-mono">$0.0000</p>
-        </div>
-    </div>
-
-    <div class="glass-panel p-6 h-[600px] flex flex-col">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold text-white"><i class="fas fa-list-alt text-slate-400 mr-2"></i> NHẬT KÝ GIAO DỊCH CHI TIẾT (AUDIT LOG)</h2>
-            <div class="text-xs text-slate-500 italic">* Click vào dòng để xem chi tiết nội dung</div>
+            <div class="glass-panel p-6 border-l-4 border-purple-500 relative overflow-hidden group hover:bg-slate-800/80 transition">
+                <div class="absolute right-4 top-4 text-purple-500/10 text-7xl group-hover:text-purple-500/20 transition duration-500"><i class="fas fa-bolt"></i></div>
+                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">HOẠT ĐỘNG GẦN NHẤT</h3>
+                <p id="last-agent" class="text-2xl font-bold text-white mt-2 truncate">---</p>
+                <p id="last-cost" class="text-sm text-purple-300 mt-1 font-mono font-bold">$0.0000</p>
+            </div>
         </div>
 
-        <div class="overflow-auto custom-scroll flex-1 rounded-lg border border-slate-700">
-            <table class="w-full text-left text-sm text-slate-400">
-                <thead class="bg-slate-800 text-xs uppercase text-slate-200 sticky top-0 shadow-lg">
-                    <tr>
-                        <th class="px-6 py-3 font-bold">Thời gian</th>
-                        <th class="px-6 py-3 font-bold">Nhân sự (Agent)</th>
-                        <th class="px-6 py-3 font-bold">Nhiệm vụ (Task)</th>
-                        <th class="px-6 py-3 font-bold">Công cụ</th>
-                        <th class="px-6 py-3 text-right font-bold text-yellow-500">Chi phí ($)</th>
-                        <th class="px-6 py-3">Kết quả tóm tắt</th>
-                    </tr>
-                </thead>
-                <tbody id="audit-table-body" class="divide-y divide-slate-700 bg-slate-900/50">
-                    <tr>
-                        <td colspan="6" class="text-center py-8">
-                            <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
-                            <p class="mt-2 text-xs">Đang kết nối đến Kế toán trưởng...</p>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+        <div class="glass-panel p-1 flex flex-col h-[650px] shadow-2xl">
+            <div class="p-5 flex justify-between items-center border-b border-slate-700/50 bg-slate-800/30 rounded-t-xl">
+                <h2 class="text-lg font-bold text-white flex items-center">
+                    <i class="fas fa-list-ul text-blue-400 mr-3"></i> NHẬT KÝ CHI TIẾT (WORK LOGS)
+                </h2>
+                <div class="flex gap-3">
+                    <span class="text-xs text-slate-400 italic mt-1"><i class="fas fa-info-circle mr-1"></i>Click vào dòng để xem bài học</span>
+                    <button onclick="fetchAuditLogs()" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition">
+                        <i class="fas fa-sync-alt mr-1"></i> Làm mới
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-auto custom-scroll flex-1 bg-slate-900/40">
+                <table class="w-full text-left text-sm text-slate-400 border-collapse">
+                    <thead class="bg-slate-800 text-xs uppercase text-slate-200 sticky top-0 shadow-lg z-10">
+                        <tr>
+                            <th class="px-6 py-4 font-bold tracking-wider">Thời gian</th>
+                            <th class="px-6 py-4 font-bold tracking-wider">Nhân sự (Agent)</th>
+                            <th class="px-6 py-4 font-bold tracking-wider w-1/4">Nhiệm vụ (Task)</th>
+                            <th class="px-6 py-4 font-bold tracking-wider text-center">Công cụ</th>
+                            <th class="px-6 py-4 text-right font-bold text-yellow-500 tracking-wider">Chi phí ($)</th>
+                            <th class="px-6 py-4 font-bold tracking-wider">Kết quả (Preview)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-table-body" class="divide-y divide-slate-700/50">
+                        </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <div id="detailModal" class="modal">
-        <div class="modal-content glass-panel">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <div class="flex items-center gap-3 mb-4 border-b border-slate-600 pb-3">
-                <div id="modal-icon" class="p-2 bg-blue-500/20 rounded text-blue-400 text-xl"><i class="fas fa-robot"></i></div>
-                <div>
-                    <h2 id="modal-agent" class="text-xl font-bold text-white m-0">AGENT NAME</h2>
-                    <p id="modal-task" class="text-sm text-slate-400 font-mono m-0">Task description...</p>
+        <div class="modal-content glass-panel animate-[fadeIn_0.2s_ease-out]">
+            <div class="flex justify-between items-start border-b border-slate-600 pb-4 mb-4">
+                <div class="flex items-center gap-4">
+                    <div id="modal-icon" class="p-3 bg-blue-600/20 rounded-lg text-blue-400 text-2xl border border-blue-500/30">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div>
+                        <h2 id="modal-agent" class="text-2xl font-bold text-white m-0 tracking-wide">AGENT NAME</h2>
+                        <div class="flex items-center gap-3 mt-1 text-sm text-slate-400 font-mono">
+                            <span id="modal-time"><i class="far fa-clock mr-1"></i>--:--</span>
+                            <span class="text-slate-600">|</span>
+                            <span id="modal-tool" class="text-blue-300">Tool</span>
+                        </div>
+                    </div>
                 </div>
+                <span class="close text-4xl leading-none hover:rotate-90 duration-200" onclick="closeModal()">&times;</span>
             </div>
             
-            <div id="modal-body" class="markdown-body text-sm overflow-y-auto max-h-[60vh] pr-2 custom-scroll">
-                </div>
+            <div class="bg-slate-800/50 p-4 rounded-lg border-l-4 border-yellow-500 mb-6">
+                <span class="text-xs font-bold text-yellow-500 uppercase block mb-1">Nhiệm vụ (Task)</span>
+                <p id="modal-task" class="text-white font-medium text-lg">Task description...</p>
+            </div>
+
+            <div class="bg-slate-900/50 rounded-xl p-1 border border-slate-700">
+                <div id="modal-body" class="markdown-body p-5 overflow-y-auto max-h-[60vh] custom-scroll">
+                    </div>
+            </div>
             
-            <div class="mt-4 pt-3 border-t border-slate-600 flex justify-between text-xs text-slate-500 font-mono">
-                <span id="modal-time">Time: --:--</span>
-                <span id="modal-cost" class="text-red-400 font-bold">Cost: $0.0000</span>
+            <div class="mt-6 flex justify-between items-center pt-4 border-t border-slate-700">
+                <div class="text-xs text-slate-500 italic">
+                    <i class="fas fa-shield-alt mr-1"></i> Verified by J.A.R.V.I.S Blockchain Ledger
+                </div>
+                <div class="bg-slate-800 px-4 py-2 rounded-lg border border-red-500/30">
+                    <span class="text-xs text-slate-400 mr-2">SESSION COST:</span>
+                    <span id="modal-cost" class="text-red-400 font-bold font-mono text-lg">$0.0000</span>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        const API_URL = ""; // Để trống nếu cùng domain
+        // --- CẤU HÌNH API ---
+        // QUAN TRỌNG: Để trống "" nếu file này nằm cùng server. 
+        // Nếu file này chạy local mà server ở Render, hãy điền link Render vào đây.
+        const API_URL = ""; 
 
-        // Biến lưu dữ liệu để hiển thị Modal
-        let logsData = [];
+        let logsData = []; // Lưu trữ dữ liệu để dùng cho Modal
 
+        // 1. HÀM TẢI DỮ LIỆU
         async function fetchAuditLogs() {
             try {
                 const res = await fetch(`${API_URL}/api/costs`);
                 if (!res.ok) throw new Error("Mất kết nối API");
                 
                 const data = await res.json();
-                logsData = data; // Lưu lại để dùng cho Modal
+                logsData = data; // Lưu vào biến toàn cục
                 renderTable(data);
                 calculateStats(data);
 
             } catch (e) {
                 console.error("Lỗi Audit:", e);
                 document.getElementById('audit-table-body').innerHTML = `
-                    <tr><td colspan="6" class="text-center py-8 text-red-500">
-                        <i class="fas fa-exclamation-triangle mb-2"></i><br>Không thể tải dữ liệu.
+                    <tr><td colspan="6" class="text-center py-12 text-red-500">
+                        <i class="fas fa-wifi text-4xl mb-3 opacity-50"></i><br>
+                        <span class="font-bold">MẤT KẾT NỐI MÁY CHỦ</span><br>
+                        <span class="text-xs text-slate-500">Đang thử lại...</span>
                     </td></tr>`;
             }
         }
 
+        // 2. HÀM TÍNH TOÁN THỐNG KÊ
         function calculateStats(data) {
             let totalCost = 0;
             if (data.length > 0) {
+                // Tính tổng chi phí (chấp nhận cả key 'cost' và 'cost_usd')
                 totalCost = data.reduce((sum, item) => sum + (item.cost_usd || item.cost || 0), 0);
                 
+                // Cập nhật Agent mới nhất
                 const lastItem = data[0];
                 document.getElementById('last-agent').innerText = lastItem.agent;
                 document.getElementById('last-cost').innerText = `-$${(lastItem.cost_usd || lastItem.cost || 0).toFixed(6)}`;
@@ -161,29 +203,51 @@
             document.getElementById('total-tx').innerText = data.length;
         }
 
+        // 3. HÀM VẼ BẢNG
         function renderTable(data) {
             const tbody = document.getElementById('audit-table-body');
             
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4">Chưa có giao dịch nào.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-12 text-slate-500 italic">Chưa có giao dịch nào được ghi lại.</td></tr>';
                 return;
             }
 
             const html = data.map((item, index) => {
-                // Mapping key từ API (vì có thể server trả về cost hoặc cost_usd)
                 const cost = item.cost_usd || item.cost || 0;
                 const result = item.result || "N/A";
                 const tool = item.tool || "System";
                 
+                // Icon công cụ
+                let toolBadge = `<span class="px-2 py-1 rounded bg-slate-700 text-slate-300 text-[10px] font-mono">${tool}</span>`;
+                if(tool.includes('Deep')) toolBadge = `<span class="px-2 py-1 rounded bg-purple-900/50 text-purple-300 border border-purple-500/30 text-[10px] font-bold"><i class="fas fa-brain mr-1"></i>${tool}</span>`;
+                if(tool.includes('GPT')) toolBadge = `<span class="px-2 py-1 rounded bg-green-900/50 text-green-300 border border-green-500/30 text-[10px] font-bold"><i class="fas fa-robot mr-1"></i>${tool}</span>`;
+
                 return `
-                <tr class="transition duration-150" onclick="showDetail(${index})">
-                    <td class="px-6 py-3 font-mono text-xs text-slate-500">${item.timestamp}</td>
-                    <td class="px-6 py-3 font-bold text-white text-xs">${item.agent}</td>
-                    <td class="px-6 py-3 text-xs text-slate-300 truncate max-w-[150px]" title="${item.task}">${item.task}</td>
-                    <td class="px-6 py-3 font-mono text-[10px] text-blue-300">${tool}</td>
-                    <td class="px-6 py-3 text-right font-mono text-xs font-bold text-red-400">$${cost.toFixed(6)}</td>
-                    <td class="px-6 py-3 text-xs text-slate-400 italic truncate max-w-[200px]">
-                        ${result.substring(0, 50)}... <span class="text-blue-500 ml-1">(Xem thêm)</span>
+                <tr class="transition duration-150 group" onclick="showDetail(${index})">
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500 group-hover:text-white transition">${item.timestamp}</td>
+                    
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+                            <span class="font-bold text-white text-sm group-hover:text-blue-400 transition">${item.agent}</span>
+                        </div>
+                    </td>
+                    
+                    <td class="px-6 py-4 text-xs text-slate-300 font-medium truncate max-w-[200px]" title="${item.task}">
+                        ${item.task}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-center">
+                        ${toolBadge}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-right font-mono text-xs font-bold text-red-400 group-hover:text-red-300">
+                        -$${cost.toFixed(6)}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-xs text-slate-400 italic truncate max-w-[250px] group-hover:text-slate-300">
+                        <i class="fas fa-file-alt mr-2 text-slate-600 group-hover:text-blue-500"></i>
+                        ${result.substring(0, 60)}...
                     </td>
                 </tr>
                 `;
@@ -192,28 +256,39 @@
             tbody.innerHTML = html;
         }
 
-        // --- MODAL LOGIC ---
+        // 4. HÀM HIỂN THỊ MODAL CHI TIẾT
         function showDetail(index) {
             const item = logsData[index];
             if (!item) return;
 
+            // Điền dữ liệu vào Modal
             document.getElementById('modal-agent').innerText = item.agent;
             document.getElementById('modal-task').innerText = item.task;
-            document.getElementById('modal-time').innerText = `Time: ${item.timestamp}`;
-            document.getElementById('modal-cost').innerText = `Cost: $${(item.cost_usd || item.cost || 0).toFixed(6)}`;
+            document.getElementById('modal-time').innerHTML = `<i class="far fa-clock mr-1"></i> ${item.timestamp}`;
+            document.getElementById('modal-tool').innerText = item.tool || "Unknown";
+            document.getElementById('modal-cost').innerText = `-$${(item.cost_usd || item.cost || 0).toFixed(6)}`;
             
-            // Render Markdown nội dung bài học
+            // Xử lý nội dung bài học (Markdown Render)
             const content = item.result || "Không có nội dung chi tiết.";
-            document.getElementById('modal-body').innerHTML = marked.parse(content);
             
-            document.getElementById('detailModal').style.display = "block";
+            // Nếu là bài học, thêm prefix đẹp
+            let displayContent = content;
+            if (content.includes("[LUẬN VĂN]")) {
+                displayContent = `### 🎓 BÁO CÁO NGHIÊN CỨU CHUYÊN SÂU\n\n` + content.replace("[LUẬN VĂN]", "").trim();
+            }
+
+            document.getElementById('modal-body').innerHTML = marked.parse(displayContent);
+            
+            // Hiện Modal
+            const modal = document.getElementById('detailModal');
+            modal.style.display = "block";
         }
 
         function closeModal() {
             document.getElementById('detailModal').style.display = "none";
         }
 
-        // Đóng modal khi click ra ngoài
+        // Đóng khi click ra ngoài
         window.onclick = function(event) {
             const modal = document.getElementById('detailModal');
             if (event.target == modal) {
@@ -221,14 +296,14 @@
             }
         }
 
-        // Đồng hồ
+        // 5. ĐỒNG HỒ & AUTO REFRESH
         setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString();
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString('vi-VN');
         }, 1000);
 
-        // Chạy ngay khi mở và lặp lại mỗi 5s
+        // Chạy ngay và lặp lại
         fetchAuditLogs();
-        setInterval(fetchAuditLogs, 5000);
+        setInterval(fetchAuditLogs, 3000); // 3 giây cập nhật 1 lần
 
     </script>
 </body>
