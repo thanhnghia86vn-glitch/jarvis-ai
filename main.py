@@ -2696,16 +2696,28 @@ async def specialized_training_job(role_tag: str):
         outline_prompt = f"""
         Bạn là Giáo sư đầu ngành về {role_tag}.
         Tôi cần nghiên cứu sâu về: "{current_topic}".
-        Hãy chia chủ đề này thành 3 khía cạnh quan trọng nhất cần đào sâu (Ví dụ: Cơ chế hoạt động, Case study thực tế, Các lỗi sai kinh điển).
-        Chỉ trả về danh sách 3 gạch đầu dòng ngắn gọn.
+        Hãy chia chủ đề này thành 5 khía cạnh quan trọng nhất cần đào sâu (Ví dụ: Cơ chế hoạt động, Case study thực tế, Các lỗi sai kinh điển).
+        Chỉ trả về danh sách 5 gạch đầu dòng ngắn gọn.
         """
         # Dùng Gemini/GPT để tư duy
         planner_llm = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
         outline_res = await planner_llm.ainvoke(outline_prompt)
-        sub_topics = [line.strip("- *") for line in outline_res.content.split('\n') if line.strip()][:3]
+        # --- [FIX LỖI LIST SPLIT Ở ĐÂY] ---
+        raw_content = outline_res.content
+        
+        # Kiểm tra nếu là List thì gộp lại thành chuỗi
+        if isinstance(raw_content, list):
+            # Xử lý trường hợp Gemini trả về list các text block
+            final_text = "\n".join([str(item) for item in raw_content])
+        else:
+            final_text = str(raw_content)
+            
+        # Xử lý tách dòng an toàn
+        sub_topics = [line.strip("- *") for line in final_text.split('\n') if line.strip()][:5]
+        # -----------------------------------
         
         if not sub_topics: sub_topics = [f"Chi tiết về {current_topic}", f"Ứng dụng của {current_topic}", f"Tương lai của {current_topic}"]
-
+        
         # ---------------------------------------------------------
         # 3. GIAI ĐOẠN 2: ĐÀO SÂU (DEEP DIVE SEARCH) - Tốn thời gian nhất
         # ---------------------------------------------------------
