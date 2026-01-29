@@ -2512,7 +2512,7 @@ async def main_loop():
     print(colored("="*50 + "\n", "cyan"))
     print(colored("ℹ️  Hệ thống đang chạy ngầm. Hãy gửi yêu cầu từ Dashboard HTML.", "yellow"))
     while True:
-        await asyncio.sleep(300) # Nghỉ mỗi 1 tiếng rồi lặp lại (vô tận)
+        await asyncio.sleep(100) # Nghỉ mỗi 1 tiếng rồi lặp lại (vô tận)
         try:
             user_input = input(colored("CEO (Yêu cầu): ", "white", attrs=["bold"]))
             if user_input.lower() in ['q', 'exit']: 
@@ -2765,7 +2765,13 @@ async def specialized_training_job(role_tag: str):
         {"\n".join(full_knowledge_base)}
         """
         final_thesis = await planner_llm.ainvoke(final_thesis_prompt)
-        final_output = final_thesis.content
+        
+        # --- [FIX LỖI 'PyString' - CHUYỂN LIST THÀNH STRING] ---
+        raw_thesis = final_thesis.content
+        if isinstance(raw_thesis, list):
+            final_output = "\n".join([str(item) for item in raw_thesis])
+        else:
+            final_output = str(raw_thesis)
 
         # ---------------------------------------------------------
         # 5. LƯU TRỮ & CỘNG ĐIỂM (XỨNG ĐÁNG)
@@ -2785,7 +2791,8 @@ async def specialized_training_job(role_tag: str):
             task=f"Nghiên cứu sâu: {current_topic}",
             result=f"[LUẬN VĂN] {final_output[:200]}...",
             tool="Deep-Protocol",
-            xp_bonus=150 # Thưởng 150 XP vì học rất kỹ
+            xp_bonus=150, # Thưởng 150 XP vì học rất kỹ
+            start_time=None
         )
         
         print(colored(f"🎓 [HOÀN TẤT] {role_tag} đã hoàn thành luận văn về {current_topic}.", "green", attrs=["bold"]))
