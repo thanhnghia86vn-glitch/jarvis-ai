@@ -1150,8 +1150,72 @@ async def get_costs_api():
     except Exception as e:
         print(f"Lỗi API Costs: {e}")
         return []
-# --- ENTRY POINT (CHẠY SERVER) ---
 
+# --- ENTRY POINT (CHẠY SERVER) ---
+@app.get("/api/wealth")
+async def check_wealth_api():
+    """API Kiểm toán Tài sản Trí tuệ (Chạy trực tiếp trên Cloud)"""
+    try:
+        # 1. Tìm DB (Ưu tiên Cloud)
+        if os.path.exists("/var/data"):
+            db_path = "/var/data/ai_corp_projects.db"
+            env = "CLOUD (Render)"
+        else:
+            db_path = "ai_corp_projects.db"
+            env = "LOCAL"
+
+        if not os.path.exists(db_path):
+            return {"error": "Chưa có Database", "path": db_path}
+
+        # 2. Kết nối
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        c = conn.cursor()
+
+        # 3. Tính toán
+        # Tổng tiền
+        c.execute("SELECT COUNT(*), SUM(cost) FROM work_logs")
+        row = c.fetchone()
+        total_tasks = row[0] or 0
+        total_cost = row[1] or 0.0
+
+        # Phân loại tài sản
+        c.execute("SELECT COUNT(*) FROM work_logs WHERE tool_used LIKE '%SUPREME%' OR tool_used LIKE '%DEBATE%'")
+        legendary_count = c.fetchone()[0] or 0 # Di sản
+        
+        c.execute("SELECT COUNT(*) FROM work_logs WHERE tool_used LIKE '%Synthesis%'")
+        synthesis_count = c.fetchone()[0] or 0 # Tổng hợp
+        
+        basic_count = total_tasks - legendary_count - synthesis_count
+
+        # Top nhân viên
+        c.execute("SELECT agent_name, COUNT(*) as cnt, SUM(cost) as cst FROM work_logs GROUP BY agent_name ORDER BY cst DESC LIMIT 5")
+        top_agents = [{"name": r[0], "tasks": r[1], "cost": r[2]} for r in c.fetchall()]
+
+        conn.close()
+
+        # 4. Trả về JSON đẹp
+        return {
+            "environment": env,
+            "financial_report": {
+                "total_cost_usd": total_cost,
+                "total_tasks": total_tasks
+            },
+            "intellectual_assets": {
+                "LEGENDARY_MASTER_PLANS": legendary_count,
+                "HIGH_QUALITY_SYNTHESIS": synthesis_count,
+                "BASIC_RESEARCH": basic_count
+            },
+            "top_spenders": top_agents,
+            "sovereignty_progress": {
+                "current_quality_docs": legendary_count + synthesis_count,
+                "target_for_finetune": 500,
+                "percentage_ready": f"{((legendary_count + synthesis_count)/500)*100:.2f}%"
+            }
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+    
 if __name__ == "__main__":
     import uvicorn
     # Sử dụng biến môi trường PORT để tương thích Cloud Run sau này
