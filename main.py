@@ -2946,34 +2946,46 @@ async def specialized_training_job(role_tag: str):
     if 'vector_db' in globals() and vector_db:
         print(colored("   🧠 Đang lục lọi ký ức (Vector DB)...", "cyan"))
         try:
-            # Tìm kiếm 3 tài liệu liên quan nhất
+            # Tìm kiến thức nền tảng cũ
             results = await asyncio.to_thread(vector_db.similarity_search, query=current_topic, k=3)
             
             if results and len(results) > 0:
-                knowledge_content = "\n\n".join([doc.page_content for doc in results])
+                existing_knowledge = "\n".join([doc.page_content for doc in results])
                 
-                # Nếu kiến thức tìm được đủ dày (> 1000 ký tự)
-                if len(knowledge_content) > 1000:
-                    print(colored("   ✅ TÌM THẤY KIẾN THỨC CŨ! (Không tốn tiền Search)", "green", attrs=["bold"]))
+                # Nếu đã có kiến thức nền, KHÔNG DỪNG LẠI, mà dùng nó để tìm chủ đề sâu hơn
+                if len(existing_knowledge) > 500:
+                    print(colored("   ✅ ĐÃ CÓ KIẾN THỨC NỀN! Đang tìm góc nhìn chuyên sâu hơn...", "green", attrs=["bold"]))
                     
-                    # Bắt AI viết báo cáo dựa trên cái cũ
-                    review_prompt = f"""
-                    Bạn là {role_tag}. Chủ đề: "{current_topic}" đã có trong kho dữ liệu.
-                    DỮ LIỆU TÌM THẤY: {knowledge_content[:3000]}...
-                    NHIỆM VỤ: Viết Báo Cáo Cập Nhật (Refresher Report) dựa trên dữ liệu này.
+                    # Bước 1: Hỏi AI xem nên đào sâu cái gì (Dựa trên cái đã biết)
+                    pivot_prompt = f"""
+                    Bạn là Chuyên gia Đào tạo.
+                    Học viên muốn học về: "{current_topic}".
+                    
+                    KIẾN THỨC ĐÃ CÓ TRONG KHO (NỀN TẢNG):
+                    {existing_knowledge[:2000]}... (Đã cắt ngắn)
+                    
+                    VẤN ĐỀ: Không được học lại những gì đã biết.
+                    NHIỆM VỤ: Hãy đề xuất 1 khía cạnh CHUYÊN SÂU (Advanced/Deep Dive) hoặc một xu hướng MỚI NHẤT liên quan đến chủ đề này mà trong kiến thức cũ CHƯA CÓ.
+                    
+                    YÊU CẦU: Chỉ trả về tên chủ đề mới. Ngắn gọn.
+                    Ví dụ: Nếu chủ đề là "Docker", kiến thức cũ là cơ bản -> Đề xuất "Docker Security Hardening" hoặc "Docker Rootless Mode".
                     """
                     
-                    final_res = await LLM_UNIVERSAL.ainvoke(review_prompt)
+                    # Gọi AI để "Bẻ lái" sang chủ đề khó hơn
+                    deep_suggestion = await LLM_UNIVERSAL.ainvoke(pivot_prompt)
+                    new_topic = deep_suggestion.content.strip().replace('"','').replace("'", "")
                     
-                    # Ghi log và RETURN ngay (Dừng lại, không chạy xuống dưới nữa)
-                    log_work_to_db(clean_name, f"Ôn tập lại: {current_topic}", final_res.content, "Deep-Memory", 50, None)
-                    if 'conn' in locals(): conn.close()
-                    return # <--- LỆNH QUAN TRỌNG NHẤT: Cắt quy trình tại đây
+                    print(colored(f"   🚀 NÂNG CẤP CHỦ ĐỀ: {current_topic} -> {new_topic}", "magenta", attrs=["bold"]))
                     
-        except Exception as e:
-            print(colored(f"⚠️ Không tra cứu được ký ức: {e}", "grey"))
-            # Nếu lỗi thì cứ lờ đi, chạy xuống dưới học mới như bình thường
+                    # CẬP NHẬT CHỦ ĐỀ MỚI ĐỂ ĐI SEARCH
+                    current_topic = new_topic
+                    
+                    # QUAN TRỌNG: KHÔNG ĐƯỢC CÓ LỆNH return Ở ĐÂY!
+                    # Để code tiếp tục chạy xuống bên dưới và dùng Google/Perplexity tìm kiếm cái "new_topic" này.
 
+        except Exception as e:
+            print(colored(f"⚠️ Lỗi khi đào sâu kiến thức: {e}", "grey"))
+            # Nếu lỗi thì cứ học chủ đề gốc
     try:
         # Bước 1: Đề cương
         print(colored("   ↳ Phân rã kiến thức...", "white"))
