@@ -2912,11 +2912,32 @@ async def specialized_training_job(role_tag: str):
     if adjusted_index < len(topics):
         current_topic = topics[adjusted_index]
     else:
-        print(colored("🌟 Hết giáo án. Đang tự nghĩ chủ đề nâng cao...", "yellow"))
-        try:
-            sugg = await LLM_UNIVERSAL.ainvoke(f"Gợi ý 1 chủ đề chuyên sâu tiếp theo cho {role_tag} sau khi đã học hết cơ bản.")
-            current_topic = sugg.content.strip()
-        except: current_topic = f"Nghiên cứu nâng cao về {role_tag}"
+            print(colored("🌟 Hết giáo án. Đang tự nghĩ chủ đề nâng cao...", "yellow"))
+            try:
+                # --- SỬA LẠI ĐOẠN NÀY ---
+                strict_prompt = f"""
+                Bạn là hệ thống quản lý đào tạo AI.
+                Vai trò: {role_tag} (Đã học hết cơ bản).
+                
+                NHIỆM VỤ: Đề xuất 1 chủ đề chuyên sâu tiếp theo.
+                
+                YÊU CẦU TUYỆT ĐỐI:
+                1. CHỈ TRẢ VỀ DUY NHẤT TÊN CHỦ ĐỀ.
+                2. KHÔNG có lời chào, KHÔNG giải thích, KHÔNG dấu câu thừa.
+                3. KHÔNG được quá 10 từ.
+                
+                Ví dụ Output đúng:
+                Advanced Kubernetes Security
+                """
+                
+                sugg = await LLM_UNIVERSAL.ainvoke(strict_prompt)
+                
+                # Làm sạch chuỗi (xóa dấu ngoặc kép, xuống dòng thừa)
+                current_topic = sugg.content.strip().replace('"', '').replace("'", "").split('\n')[0]
+                
+            except Exception as e:
+                print(colored(f"⚠️ Lỗi khi nghĩ chủ đề: {e}", "red"))
+                current_topic = f"Nghiên cứu chuyên sâu về {role_tag}"
 
     print(colored(f"🎯 CHỦ ĐỀ HỌC MỚI: {current_topic}", "yellow"))
 # ==============================================================================
