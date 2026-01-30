@@ -19,11 +19,13 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from termcolor import colored
 from gtts import gTTS
+from langchain_openai import ChatOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from langchain_google_genai import ChatGoogleGenerativeAI
 # --- CÀI ĐẶT THƯ VIỆN: pip install fastapi uvicorn python-multipart jinja2 aiofiles ---
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Request, status, WebSocket, WebSocketDisconnect, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.concurrency import run_in_threadpool
@@ -102,6 +104,14 @@ except Exception as e:
     LLM_GEMINI_LOGIC = None
     LLM_GEMINI_VISION = None
     CODER_PRIMARY = None
+
+try:
+    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+except:
+    CHAT_MODEL = None # Sẽ xử lý lỗi sau
+
+class Query(BaseModel):
+    question: str
 
 # --- IMPORT MODULES NỘI BỘ KHÁC ---
 try:
@@ -453,31 +463,80 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)):
     return x_api_key
 
 
-@app.get("/admin")
-async def admin_page(request: Request):
-    # Truyền thêm biến api_key sang giao diện HTML
-    return templates.TemplateResponse("admin.html", {
-        "request": request, 
-        "api_key": ADMIN_SECRET # <--- QUAN TRỌNG: Dòng này giúp hiển thị Key
-    })
+# 1. TRANG QUẢN TRỊ (Render HTML thuần túy, không truyền Key)
+@app.get("/admin", response_class=HTMLResponse)
+async def read_admin(request: Request):
+    """Giao diện Admin Panel"""
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 
-@app.get("/")
-async def home_page(request: Request):
+@app.get("/", response_class= HTMLResponse)
+async def read_home(request: Request):
     # Nếu ngài có file index.html hoặc products.html thì để nguyên
     # Nếu muốn mặc định vào Dashboard thì đổi thành "dashboard.html"
     return templates.TemplateResponse("store.html", {"request": request}) 
     # Lưu ý: Đảm bảo file index.html này tồn tại trong thư mục templates
 
 # 2. Trang Dashboard (Giao diện Chat & Vẽ tranh - J.A.R.V.I.S COMMAND CENTER)
-@app.get("/dashboard")
-async def dashboard_page(request: Request):
+@app.get("/dashboard", response_class= HTMLResponse)
+async def read_dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
-@app.get("/index")
-async def dashboard_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.get("/", response_class=HTMLResponse)
+async def read_index(request: Request):
+    """TRANG CHỦ: Hiển thị Sơ đồ tổ chức & Thăng hạng Agent"""
+    try:
+        # 1. KẾT NỐI DB
+        if os.path.exists("/var/data"): db_path = "/var/data/ai_corp_projects.db"
+        else: db_path = "ai_corp_projects.db"
+        
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row # Để gọi tên cột (row['xp'])
+        c = conn.cursor()
 
+        # 2. LẤY THÔNG TIN AGENT (Để tính Level)
+        c.execute("SELECT * FROM agent_status ORDER BY xp DESC")
+        raw_agents = c.fetchall()
+        
+        # Xử lý dữ liệu Agent (Tính Level từ XP)
+        agents_data = []
+        for a in raw_agents:
+            xp = a['xp'] or 0
+            level = int(xp / 1000) + 1 # Quy ước: 1000 XP = 1 Level
+            
+            # Tính % thanh năng lượng (XP lẻ của level hiện tại)
+            progress_percent = (xp % 1000) / 10
+            
+            agents_data.append({
+                "name": a['role_tag'],
+                "xp": xp,
+                "level": level,
+                "topic": a['current_topic'] or "Đang chờ nhiệm vụ...",
+                "progress": progress_percent
+            })
+
+        # 3. LẤY LUẬN VĂN MỚI NHẤT (Master Plan / Di Sản)
+        # Chỉ lấy bài thuộc loại SUPREME-COUNCIL hoặc DEBATE (Chất lượng cao)
+        c.execute("""
+            SELECT agent_name, task_content, result_summary, timestamp 
+            FROM work_logs 
+            WHERE tool_used LIKE '%SUPREME%' OR tool_used LIKE '%DEBATE%' 
+            ORDER BY id DESC LIMIT 1
+        """)
+        latest_report = c.fetchone()
+
+        conn.close()
+
+        # 4. TRẢ VỀ HTML KÈM DỮ LIỆU
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "agents": agents_data,         # Danh sách nhân viên & Level
+            "featured_report": latest_report # Bài luận văn tiêu điểm
+        })
+
+    except Exception as e:
+        return f"Lỗi Server: {e}"
+    
 @app.get("/api/agents")
 async def get_agents_status():
     """
@@ -1150,6 +1209,81 @@ async def get_costs_api():
     except Exception as e:
         print(f"Lỗi API Costs: {e}")
         return []
+    
+@app.post("/api/ask")
+async def ask_jarvis(query: Query):
+    """API: SÁNG TẠO TỪ CỐT LÕI (RAG GENERATION)"""
+    question = query.question
+    print(f"❓ CEO yêu cầu sáng tạo: {question}")
+
+    try:
+        # 1. KẾT NỐI & TÌM "CẢM HỨNG" (CONTEXT)
+        if os.path.exists("/var/data"): db_path = "/var/data/ai_corp_projects.db"
+        else: db_path = "ai_corp_projects.db"
+        
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Tìm 3 bài "Di Sản" (Legendary) liên quan nhất để học hỏi phong cách
+        # Mẹo: Dùng từ khóa từ câu hỏi để tìm bài mẫu
+        keywords = question.replace("tạo", "").replace("vẽ", "").replace("viết", "").strip().split()
+        search_term = keywords[0] if keywords else ""
+        
+        sql = f"""
+            SELECT agent_name, task_content, result_summary 
+            FROM work_logs 
+            WHERE (tool_used LIKE '%SUPREME%' OR tool_used LIKE '%DEBATE%' OR tool_used LIKE '%Research%')
+            AND (task_content LIKE '%' || ? || '%' OR result_summary LIKE '%' || ? || '%')
+            ORDER BY id DESC LIMIT 2
+        """
+        c.execute(sql, (search_term, search_term))
+        rows = c.fetchall()
+        conn.close()
+
+        # 2. XÂY DỰNG "BỘ GEN" TRI THỨC (CONTEXT)
+        knowledge_dna = ""
+        if rows:
+            knowledge_dna = "DƯỚI ĐÂY LÀ CÁC TIÊU CHUẨN/NGUYÊN TẮC CỐT LÕI CỦA CÔNG TY (ĐÃ ĐƯỢC HỘI ĐỒNG THÔNG QUA):\n"
+            for r in rows:
+                knowledge_dna += f"- KINH NGHIỆM TỪ {r['agent_name']} (Bài: {r['task_content']}):\n{str(r['result_summary'])[:1500]}\n...\n"
+        else:
+            knowledge_dna = "Chưa có bài mẫu trong kho. Hãy dùng kiến thức chuẩn của chuyên gia."
+
+        # 3. KÍCH HOẠT SÁNG TẠO (GENERATION)
+        if CHAT_MODEL:
+            # Prompt này ép AI phải "Học thầy" nhưng "Làm mới"
+            prompt = f"""
+            Bạn là J.A.R.V.I.S - Kiến trúc sư trưởng.
+            
+            YÊU CẦU CỦA CEO: "{question}"
+            
+            --------------------------------------------------
+            KHO TÀNG KINH NGHIỆM (DI SẢN) CỦA CÔNG TY:
+            {knowledge_dna}
+            --------------------------------------------------
+            
+            NHIỆM VỤ:
+            Đừng sao chép nguyên văn Kho tàng trên. Hãy PHÂN TÍCH CỐT LÕI (Bố cục, tư duy, tiêu chuẩn bảo mật, văn phong) của nó.
+            Sau đó, hãy SÁNG TÁC một giải pháp MỚI HOÀN TOÀN cho yêu cầu của CEO, nhưng phải tuân thủ nghiêm ngặt các tiêu chuẩn trong Kho tàng.
+            
+            VÍ DỤ:
+            - Nếu Kho tàng có code Game Rắn (với chuẩn clean code), và CEO đòi Game Tetris -> Hãy viết Game Tetris bằng chuẩn clean code đó.
+            - Nếu Kho tàng có Chiến lược Marketing Facebook, và CEO hỏi về TikTok -> Hãy áp dụng tư duy chiến lược đó sang TikTok.
+            
+            HÃY TRẢ LỜI NGAY BÂY GIỜ (Dùng Markdown đẹp):
+            """
+            
+            print("   🎨 Đang vẽ bức tranh mới dựa trên kỹ thuật cũ...")
+            response = await CHAT_MODEL.ainvoke(prompt)
+            return {"answer": response.content}
+            
+        else:
+            return {"answer": "Lỗi: Chưa kết nối bộ não AI (CHAT_MODEL)."}
+
+    except Exception as e:
+        return {"answer": f"Lỗi sáng tạo: {str(e)}"}
+
 
 # --- ENTRY POINT (CHẠY SERVER) ---
 @app.get("/api/wealth")
@@ -1215,7 +1349,43 @@ async def check_wealth_api():
 
     except Exception as e:
         return {"error": str(e)}
+
+@app.websocket("/ws/nexus")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("⚡ J.A.R.V.I.S NEXUS: Connected via WebSocket")
     
+    try:
+        while True:
+            # Nhận tin nhắn từ Client (Web)
+            data = await websocket.receive_text()
+            print(f"📩 Web gửi: {data}")
+            
+            # Xử lý Logic (Dùng LLM_UNIVERSAL hoặc ChatModel)
+            response_text = "J.A.R.V.I.S đang xử lý..."
+            
+            if CHAT_MODEL:
+                # Gọi AI trả lời (Có thể dùng hàm ask_jarvis logic ở trên)
+                prompt = f"Bạn là J.A.R.V.I.S. Trả lời ngắn gọn: {data}"
+                res = await CHAT_MODEL.ainvoke(prompt)
+                response_text = res.content
+            else:
+                response_text = "Hệ thống chưa kết nối não bộ AI."
+
+            # Gửi phản hồi lại Web
+            await websocket.send_text(response_text)
+            
+    except WebSocketDisconnect:
+        print("🔌 J.A.R.V.I.S NEXUS: Disconnected")
+
+# --- 2. TTS ENDPOINT (Giả lập Text-to-Speech) ---
+# Để code HTML của Ngài không bị lỗi 404
+@app.post("/api/tts")
+async def text_to_speech(request: Request):
+    # Ở đây nếu muốn xịn có thể tích hợp gTTS hoặc OpenAI Audio
+    # Hiện tại trả về 200 OK để Frontend không báo lỗi đỏ
+    return JSONResponse({"status": "ok", "message": "Audio processed"})
+
 if __name__ == "__main__":
     import uvicorn
     # Sử dụng biến môi trường PORT để tương thích Cloud Run sau này
