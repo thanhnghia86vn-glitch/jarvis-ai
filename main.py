@@ -2663,6 +2663,27 @@ CURRICULUM = {
         "Account-Based Marketing (ABM) cho khách hàng doanh nghiệp lớn",
         "Kỹ thuật đàm phán cấp cao (High-stakes Negotiation)",
         "Ứng dụng CRM AI để dự đoán tỷ lệ chốt đơn (Win Rate Prediction)"
+    ],
+    "[INTERN]": [
+        # BÀI 1: KHẢO CỔ HỌC DỮ LIỆU (Data Archaeology)
+        # Nhiệm vụ: Đọc lại các "Di sản" (Legendary Master Plans) cũ và tóm tắt lại thành "Cẩm nang bỏ túi".
+        "Rà soát toàn bộ các Master Plan trong Vector DB để tạo ra bộ quy tắc ứng xử chung (Code of Conduct) cho AI.",
+
+        # BÀI 2: PHÂN TÍCH THẤT BẠI (Failure Analysis)
+        # Nhiệm vụ: Đọc các biên bản tranh luận (Transcript) xem tại sao các Sếp hay cãi nhau?
+        "Tổng hợp các lỗi sai phổ biến mà Hội đồng Tối cao thường xuyên bắt bẻ (Ví dụ: Thiếu số liệu, Rủi ro pháp lý...) để cảnh báo các Agent khác.",
+
+        # BÀI 3: KẾT NỐI LIÊN NGÀNH (Interdisciplinary Synthesis)
+        # Nhiệm vụ: Tìm mối liên hệ giữa [FINANCE] và [CODER] mà 2 ông này không nhận ra.
+        "Nghiên cứu sự tương quan giữa biến động Bitcoin (từ Finance) và xu hướng công nghệ Blockchain mới (từ Coder).",
+
+        # BÀI 4: TỐI ƯU HÓA QUY TRÌNH (Process Optimization)
+        # Nhiệm vụ: Đề xuất cách làm việc nhanh hơn.
+        "Xây dựng khung mẫu (Template) chuẩn cho một bài báo cáo hoàn hảo để các Agent khác copy theo.",
+        
+        # BÀI 5: TRUYỀN THÔNG NỘI BỘ (Internal Newsletter)
+        # Nhiệm vụ: Viết bản tin tổng hợp tuần.
+        "Tổng hợp tất cả thành tựu của công ty trong 24h qua thành một bản tin vắn tắt (Executive Summary) cho CEO."
     ]
 }
 
@@ -2786,7 +2807,9 @@ async def specialized_training_job(role_tag: str):
             final_res = await LLM_UNIVERSAL.ainvoke(final_strategy_prompt)
             final_strategy = final_res.content
             if isinstance(final_strategy, list): final_strategy = "\n".join([str(i) for i in final_strategy])
-
+# ==============================================================================
+    # 🔍 CƠ CHẾ TIẾT KIỆM TIỀN: TRA CỨU KHO TRI THỨC (MEMORY CHECK)
+# ==============================================================================
             # --- [LƯU VÀO KHO DI SẢN (VECTOR DB)] ---
             if 'vector_db' in globals() and vector_db:
                 print(colored("   💾 Đang lưu Di Sản vào Bộ Nhớ Vĩnh Cửu...", "cyan"))
@@ -2896,6 +2919,39 @@ async def specialized_training_job(role_tag: str):
         except: current_topic = f"Nghiên cứu nâng cao về {role_tag}"
 
     print(colored(f"🎯 CHỦ ĐỀ HỌC MỚI: {current_topic}", "yellow"))
+# ==============================================================================
+    # 🔍 CƠ CHẾ TIẾT KIỆM TIỀN: TRA CỨU KHO TRI THỨC (MEMORY CHECK)
+# ==============================================================================
+    if 'vector_db' in globals() and vector_db:
+        print(colored("   🧠 Đang lục lọi ký ức (Vector DB)...", "cyan"))
+        try:
+            # Tìm kiếm 3 tài liệu liên quan nhất
+            results = await asyncio.to_thread(vector_db.similarity_search, query=current_topic, k=3)
+            
+            if results and len(results) > 0:
+                knowledge_content = "\n\n".join([doc.page_content for doc in results])
+                
+                # Nếu kiến thức tìm được đủ dày (> 1000 ký tự)
+                if len(knowledge_content) > 1000:
+                    print(colored("   ✅ TÌM THẤY KIẾN THỨC CŨ! (Không tốn tiền Search)", "green", attrs=["bold"]))
+                    
+                    # Bắt AI viết báo cáo dựa trên cái cũ
+                    review_prompt = f"""
+                    Bạn là {role_tag}. Chủ đề: "{current_topic}" đã có trong kho dữ liệu.
+                    DỮ LIỆU TÌM THẤY: {knowledge_content[:3000]}...
+                    NHIỆM VỤ: Viết Báo Cáo Cập Nhật (Refresher Report) dựa trên dữ liệu này.
+                    """
+                    
+                    final_res = await LLM_UNIVERSAL.ainvoke(review_prompt)
+                    
+                    # Ghi log và RETURN ngay (Dừng lại, không chạy xuống dưới nữa)
+                    log_work_to_db(clean_name, f"Ôn tập lại: {current_topic}", final_res.content, "Deep-Memory", 50, None)
+                    if 'conn' in locals(): conn.close()
+                    return # <--- LỆNH QUAN TRỌNG NHẤT: Cắt quy trình tại đây
+                    
+        except Exception as e:
+            print(colored(f"⚠️ Không tra cứu được ký ức: {e}", "grey"))
+            # Nếu lỗi thì cứ lờ đi, chạy xuống dưới học mới như bình thường
 
     try:
         # Bước 1: Đề cương
