@@ -136,7 +136,7 @@ except: LLM_CLAUDE = None
 try:
     # A. Bản Logic (Xử lý văn bản dài cho Thư ký)
     LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
-        model="gemini-3-pro-preview", 
+        model="gemini-2.5-flash", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.3
     )
@@ -151,6 +151,27 @@ try:
 except: 
     LLM_GEMINI_LOGIC = None
     LLM_GEMINI_VISION = None
+# --- 5. KHỞI TẠO "BIỆT ĐỘI BẤT TỬ" (FALLBACK CHAIN) ---
+# Đây là model thông minh: Tự động chuyển làn khi gặp sự cố
+try:
+    # Danh sách dự phòng: Nếu ông đầu tiên chết, ông sau sẽ lên thay
+    backups = []
+    if LLM_DEEPSEEK: backups.append(LLM_DEEPSEEK)
+    if LLM_GPT4: backups.append(LLM_GPT4)
+    if LLM_CLAUDE: backups.append(LLM_CLAUDE)
+
+    # Model chính là Gemini Flash (Rẻ nhất)
+    # Lưu ý: Cần import model flash trong phần khởi tạo Gemini trước đó
+    primary_model = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
+
+    # Tạo chuỗi Fallback
+    LLM_UNIVERSAL = primary_model.with_fallbacks(backups)
+    
+    print(colored("🛡️ [SYSTEM] Đã kích hoạt cơ chế 'LLM_UNIVERSAL' (Auto-Fallback).", "green"))
+
+except Exception as e:
+    print(colored(f"⚠️ Không thể tạo Fallback Chain: {e}", "red"))
+    LLM_UNIVERSAL = LLM_GPT4 # Fallback cuối cùng
 
 # 5. CÁC CÔNG CỤ KHÁC (Giữ nguyên)
 try:
@@ -2699,9 +2720,8 @@ async def specialized_training_job(role_tag: str):
         Hãy chia chủ đề này thành 5 khía cạnh quan trọng nhất cần đào sâu (Ví dụ: Cơ chế hoạt động, Case study thực tế, Các lỗi sai kinh điển).
         Chỉ trả về danh sách 5 gạch đầu dòng ngắn gọn.
         """
-        # Dùng Gemini/GPT để tư duy
-        planner_llm = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
-        outline_res = await planner_llm.ainvoke(outline_prompt)
+        # GỌI 1 LẦN DUY NHẤT - TỰ ĐỘNG XỬ LÝ LỖI
+        outline_res = await LLM_UNIVERSAL.ainvoke(outline_prompt)
         # --- [FIX LỖI LIST SPLIT Ở ĐÂY] ---
         raw_content = outline_res.content
         
@@ -2743,7 +2763,7 @@ async def specialized_training_job(role_tag: str):
             else:
                 # Chế độ "Reflection": Đã biết rồi thì phải suy ngẫm sâu hơn
                 reflect_prompt = f"Chúng ta đã biết: {local_knowledge[:1000]}. Hãy phân tích sâu hơn, tìm ra các góc khuất hoặc rủi ro mà ít người để ý về '{sub}'."
-                reflect_res = await planner_llm.ainvoke(reflect_prompt)
+                reflect_res = await LLM_UNIVERSAL.ainvoke(reflect_prompt)
                 content = reflect_res.content
                 source = "Deep Reflection"
 
@@ -2764,7 +2784,7 @@ async def specialized_training_job(role_tag: str):
         DỮ LIỆU THÔ:
         {"\n".join(full_knowledge_base)}
         """
-        final_thesis = await planner_llm.ainvoke(final_thesis_prompt)
+        final_thesis = await LLM_UNIVERSAL.ainvoke(final_thesis_prompt)
         
         # --- [FIX LỖI 'PyString' - CHUYỂN LIST THÀNH STRING] ---
         raw_thesis = final_thesis.content
