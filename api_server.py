@@ -232,9 +232,21 @@ app = FastAPI(title="J.A.R.V.I.S v4.5 FULL", version="4.5", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
-app.mount("/static", StaticFiles(directory=os.path.join(base_dir, 'static')), name="static")
-templates = Jinja2Templates(directory=os.path.join(base_dir, 'templates'))
+static_dir = os.path.join(base_dir, 'static')
+templates_dir = os.path.join(base_dir, 'templates')
 
+# 1. Tạo thư mục ngay lập tức (Không chờ lifespan)
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+    print(colored("⚠️ Đã tự động tạo thư mục 'static' để tránh lỗi mount.", "yellow"))
+
+if not os.path.exists(templates_dir):
+    os.makedirs(templates_dir)
+    print(colored("⚠️ Đã tự động tạo thư mục 'templates'.", "yellow"))
+
+# 2. Bây giờ Mount mới an toàn
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+templates = Jinja2Templates(directory=templates_dir)
 # === WEB ROUTES ===
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
