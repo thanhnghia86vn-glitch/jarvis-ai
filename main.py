@@ -3059,7 +3059,7 @@ async def auto_learning_cycle():
         # Nếu vừa có lệnh trong 5 phút qua -> Coi là bận
         idle_seconds = (datetime.now() - LAST_INTERACTION_TIME).total_seconds()
         
-        if IS_SYSTEM_BUSY or idle_seconds < 300: # 5 phút
+        if IS_SYSTEM_BUSY or idle_seconds < 120: # 5 phút
             # print("🚧 Hệ thống đang bận. Tạm hoãn học tập.", end="\r")
             await asyncio.sleep(60) # Chờ 1 phút rồi check lại
             continue
@@ -3078,7 +3078,7 @@ async def auto_learning_cycle():
             # Chạy thật: Nghỉ 30-60 phút
             # Chạy test: Nghỉ 60 giây
             print(colored(f"💤 {current_agent} đã học xong. Hệ thống nghỉ giải lao.", "dark_grey"))
-            await asyncio.sleep(300) 
+            await asyncio.sleep(120) 
 
         except Exception as e:
             print(colored(f"⚠️ Lỗi Scheduler: {e}", "red"))
