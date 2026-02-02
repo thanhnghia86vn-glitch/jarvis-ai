@@ -155,10 +155,12 @@ class DatabaseManager:
                     )
                 """))
                 conn.execute(text("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp TIMESTAMP)"))
+                conn.execute(text("CREATE TABLE IF NOT EXISTS async_tasks (task_id TEXT PRIMARY KEY, status TEXT, result TEXT, timestamp TIMESTAMP)"))
                 conn.commit()
             print(colored("✅ FULL DB INITIALIZED", "green"))
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
+
 
 db_manager = DatabaseManager()
 
@@ -738,8 +740,117 @@ async def check_wealth_api():
         return {"error": str(e)}
 
 # ==========================================
-# 6. CHAT & AI & VOICE API
+# 6. HỆ THỐNG XỬ LÝ CHAT ĐA LUỒNG (ASYNC CORE)
 # ==========================================
+
+# --- 1. WORKER: NHÂN VIÊN CHẠY NGẦM (Làm việc bất kể ngày đêm/tắt máy) ---
+async def background_ai_worker(task_id: str, user_msg_text: str, thread_id: str):
+    """
+    Hàm này chạy độc lập với API. Dù CEO tắt trình duyệt, nó vẫn chạy trên Server.
+    """
+    print(colored(f"⚙️ [BG WORKER] Bắt đầu xử lý Task {task_id}...", "yellow"))
+    
+    try:
+        # A. Cập nhật trạng thái: ĐANG XỬ LÝ
+        with db_manager.get_connection() as conn:
+            conn.execute(text("INSERT OR REPLACE INTO async_tasks (task_id, status, result, timestamp) VALUES (:id, 'PROCESSING', '', :time)"), 
+                         {"id": task_id, "time": datetime.now()})
+            conn.commit()
+
+        # B. Chuẩn bị ngữ cảnh (Memory)
+        memory_context = ""
+        if MEMORY_AVAILABLE:
+            try:
+                memory_context = await run_in_threadpool(lambda: recall_relevant_memories(user_msg_text))
+            except: pass
+
+        # C. Đóng gói tin nhắn chuẩn
+        final_input_content = f"""
+        [CONTEXT INFO]:
+        Location: Phan Thiet | Time: {datetime.now().strftime('%H:%M %d/%m/%Y')}
+        Relevant Memories: {memory_context}
+        
+        [USER COMMAND]:
+        {user_msg_text}
+        """
+        
+        human_msg = HumanMessage(content=final_input_content)
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # D. GỌI AI (Bước tốn thời gian nhất)
+        # Hệ thống có thể mất 2-3 phút ở đây, nhưng không sao cả
+        output = await ai_app.ainvoke({"messages": [human_msg]}, config=config)
+        ai_reply = output["messages"][-1].content
+
+        # E. Lưu ký ức (Hậu xử lý)
+        if MEMORY_AVAILABLE:
+            try:
+                # Chạy thẳng hàm đồng bộ vì đang ở trong worker riêng rồi
+                extract_and_save_memory(user_msg_text, ai_reply)
+            except: pass
+
+        # F. HOÀN TẤT: Cập nhật Database
+        with db_manager.get_connection() as conn:
+            # Dùng tham số bind để tránh lỗi ký tự đặc biệt trong SQL
+            conn.execute(text("UPDATE async_tasks SET status='DONE', result=:res WHERE task_id=:id"), 
+                         {"res": ai_reply, "id": task_id})
+            conn.commit()
+            
+        print(colored(f"✅ [BG WORKER] Task {task_id} hoàn thành!", "green"))
+
+    except Exception as e:
+        error_msg = f"Lỗi hệ thống: {str(e)}"
+        print(colored(f"❌ [BG WORKER] Task {task_id} thất bại: {e}", "red"))
+        with db_manager.get_connection() as conn:
+            conn.execute(text("UPDATE async_tasks SET status='ERROR', result=:err WHERE task_id=:id"), 
+                         {"err": error_msg, "id": task_id})
+            conn.commit()
+
+# --- 2. API GIAO VIỆC (DISPATCHER) ---
+@app.post("/api/chat_async")
+async def chat_async_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
+    """
+    Nhận lệnh -> Phát phiếu hẹn (Task ID) -> Trả lời ngay lập tức.
+    """
+    # Xử lý nhanh các câu chào hỏi (Fast Track) - Không cần tạo Task
+    greetings = ["chào", "hi", "hello", "alo", "ping"]
+    if str(request.message).strip().lower() in greetings:
+        # Trả về dạng đặc biệt để Dashboard biết là xong luôn
+        return {"task_id": "fast_track", "status": "DONE", "reply": "Chào CEO! J.A.R.V.I.S đang trực tuyến."}
+
+    # Tạo mã phiếu hẹn duy nhất
+    task_id = f"task_{uuid.uuid4().hex[:8]}"
+    
+    # Đẩy việc cho Worker chạy ngầm
+    background_tasks.add_task(
+        background_ai_worker, 
+        task_id, 
+        str(request.message), 
+        str(request.thread_id)
+    )
+    
+    # Trả mã phiếu cho Dashboard cầm
+    return {"task_id": task_id, "status": "QUEUED", "message": "Đã tiếp nhận. Đang xử lý ngầm..."}
+
+# --- 3. API KIỂM TRA (TRACKER) ---
+@app.get("/api/task_status/{task_id}")
+async def get_task_status(task_id: str):
+    """
+    Dashboard dùng API này để hỏi: "Xong chưa?"
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.execute("SELECT status, result FROM async_tasks WHERE task_id=?", (task_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {"status": row[0], "result": row[1]}
+        else:
+            return {"status": "NOT_FOUND", "result": None}
+    except Exception as e:
+        return {"status": "ERROR", "result": str(e)}
+
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
