@@ -9,9 +9,13 @@ import re
 import time
 from datetime import datetime
 import shutil
+from duckduckgo_search import DDGS
+import requests
+from bs4 import BeautifulSoup
 from typing import TypedDict, Annotated, Sequence, Literal, List, Dict, Set, Optional, Any
 from termcolor import colored
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
 # --- SAFE IMPORTS (CHỐNG SẬP NẾU THIẾU THƯ VIỆN) ---
 
 # Import LangChain & AI Models
@@ -136,14 +140,14 @@ except: LLM_CLAUDE = None
 try:
     # A. Bản Logic (Xử lý văn bản dài cho Thư ký)
     LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite", 
+        model="gemini-2.5-flash", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.3
     )
     
     # B. Bản Vision (Nano Banana - Chuyên xử lý ảnh cho Artist)
     LLM_GEMINI_VISION = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite", 
+        model="gemini-3-pro-image-preview", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.4
     )
@@ -1785,7 +1789,67 @@ def procurement_node(state):
 # ============================================================================
 # NODE: RESEARCHER (Chuyên gia Phân tích Thị trường & Đối thủ)
 # ============================================================================
-def researcher_node(state):
+# Hàm con để tải 1 trang (dùng cho chạy song song)
+def fetch_url(r):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0...'} # (Giữ nguyên header dài của bạn)
+        page = requests.get(r['href'], headers=headers, timeout=3) # Giảm timeout xuống 3s cho nhanh
+        soup = BeautifulSoup(page.content, 'html.parser')
+        
+        # Xóa rác
+        for script in soup(["script", "style", "nav", "footer"]): script.extract()
+        
+        text = " ".join(soup.get_text().split())[:1500]
+        return f"\n--- NGUỒN: {r['title']} ---\n{text}\n"
+    except:
+        return ""
+#  giảm chi phí tìm kiếm 
+async def free_deep_research(query):
+    """
+    Thuật toán tìm kiếm tiết kiệm:
+    1. DuckDuckGo: Lấy link.
+    2. BeautifulSoup: Lọc lấy văn bản thuần (bỏ quảng cáo).
+    3. Gemini Flash: Đọc và tóm tắt.
+    """
+    print(colored(f"🕵️ [FREE SCOUT] Đang đào dữ liệu: {query}...", "cyan"))
+    
+    try:
+        results = DDGS().text(query, max_results=25) # <--- LÊN 10
+    except: return "Lỗi DuckDuckGo"
+
+    if not results: return "Không tìm thấy tin."
+
+    # 2. TẢI SONG SONG (Cải tiến tốc độ cực mạnh)
+    # Thay vì chờ từng trang, ta cử 10 "thợ lặn" đi cùng lúc
+    raw_knowledge = ""
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Chạy hàm fetch_url cho danh sách results
+        contents = list(executor.map(fetch_url, results))
+        raw_knowledge = "".join(contents)
+
+    # 3. TỔNG HỢP (Gemini Flash)
+    if not raw_knowledge: return "Không đọc được nội dung chi tiết."
+
+    # Prompt yêu cầu Gemini đóng vai trò nhà nghiên cứu
+    analyze_prompt = f"""
+    Bạn là một trợ lý nghiên cứu tỉ mỉ.
+    Dựa trên {len(raw_knowledge)} nguồn dữ liệu thô dưới đây, hãy tổng hợp câu trả lời cho: "{query}"
+
+    YÊU CẦU QUAN TRỌNG:
+    1. Nếu các nguồn tin mâu thuẫn nhau, hãy nêu rõ sự mâu thuẫn.
+    2. Ưu tiên các thông tin kỹ thuật, số liệu cụ thể.
+    3. Nếu không đủ thông tin, hãy trả lời thẳng là "Dữ liệu không đủ" chứ không được bịa đặt.
+
+    DỮ LIỆU THÔ:
+    {raw_knowledge}
+    """
+    
+    # Gọi LLM_FAST (Gemini Flash - Miễn phí)
+    # Lưu ý: Đảm bảo bạn đã khai báo LLM_FAST ở đầu file như hướng dẫn trước
+    response = await LLM_GEMINI_LOGIC.ainvoke(analyze_prompt)
+    return response.content
+
+async def researcher_node(state):
     """
     Agent Researcher: Chuyên gia phân tích thị trường 2026.
     Nâng cấp: Tự động nhận diện Tag ngữ cảnh để quyết định hành động tiếp theo.
@@ -1820,53 +1884,88 @@ def researcher_node(state):
         "\n\nĐịnh dạng: Markdown chuyên nghiệp, có bảng so sánh."
     )
     
+    # try:
+    #     # 3. Triệu hồi Perplexity
+    #     response = LLM_PERPLEXITY.invoke([
+    #         SystemMessage(content="Bạn là Chief Research Officer. Chỉ trả về dữ liệu thực tế 2026, KHÔNG HTML."),
+    #         HumanMessage(content=search_prompt)
+    #     ])
+    #     raw_res = response.content
+
+    #     # --- TẦNG PHÒNG THỦ 1: CHẶN HTML & LỖI 401 ---
+    #     if any(x in raw_res.lower() for x in ["<html>", "401 authorization", "cloudflare"]):
+    #         return {
+    #             "messages": [AIMessage(content="🚨 [HỆ THỐNG] Lỗi kết nối nguồn tin (API 401). CEO hãy kiểm tra lại Key Perplexity.")],
+    #             "next_step": "FINISH" # Dừng ngay lập tức để bảo vệ tài nguyên
+    #         }
+
+    #     # --- TẦNG PHÒNG THỦ 2: XỬ LÝ KẾT QUẢ THÀNH CÔNG ---
+    #     report_content = f"🔍 **[BÁO CÁO CRO - {clean_query.upper()}]**\n\n{raw_res}"
+    #     if is_pure_research:
+    #         # Nếu CEO chỉ muốn nghiên cứu (Tab Research), kết thúc tại đây.
+    #         next_destination = "Secretary"
+    #     else:
+    #         # Thay vì st.session_state, ta dùng task_type được Dashboard gửi qua Server
+    #         if state.get("task_type") == "dynamic":
+    #             next_destination = "Orchestrator"
+    #         else:
+    #             next_destination = "Supervisor"
+
+    #     # ============================================================
+    #     # 🟢 [CHÈN ĐOẠN NÀY VÀO] GHI SỔ CÔNG VIỆC
+    #     # ============================================================
+    #     try:
+    #         log_work_to_db(
+    #             agent="Researcher",
+    #             task=clean_query,   # Đề bài sếp giao
+    #             result=raw_res,     # Kết quả tìm được
+    #             tool="Perplexity",  # Súng đã dùng
+    #             start_time=start_time # Thời gian bắt đầu
+    #         )
+    #     except Exception as log_err:
+    #         print(colored(f"⚠️ Lỗi ghi log kế toán: {log_err}", "yellow"))
+
+
+    #     return {
+    #         "messages": [AIMessage(content=report_content)],
+    #         "next_step": next_destination,
+    #         "current_agent": "Researcher" # Định danh để Orchestrator biết ai vừa hoàn thành báo cáo
+    #     }
+    #  nội dung điều chỉnh đoạn trên nhằm giảm chi phí tìm kiếm.
     try:
-        # 3. Triệu hồi Perplexity
-        response = LLM_PERPLEXITY.invoke([
-            SystemMessage(content="Bạn là Chief Research Officer. Chỉ trả về dữ liệu thực tế 2026, KHÔNG HTML."),
-            HumanMessage(content=search_prompt)
-        ])
-        raw_res = response.content
+        # --- [THAY ĐỔI] GỌI HÀM MIỄN PHÍ THAY VÌ API TRẢ PHÍ ---
+        # Chúng ta bỏ qua bước check HTML/401 vì hàm tự viết không bị lỗi này
+        
+        # Gọi hàm free_deep_research vừa viết ở trên
+        # Vì nó là async function, nên dùng await (nếu researcher_node là async)
+        # Nếu researcher_node của bạn là def thường (sync), hãy dùng: asyncio.run(free_deep_research(clean_query))
+        
+        raw_res = await free_deep_research(clean_query) 
 
-        # --- TẦNG PHÒNG THỦ 1: CHẶN HTML & LỖI 401 ---
-        if any(x in raw_res.lower() for x in ["<html>", "401 authorization", "cloudflare"]):
-            return {
-                "messages": [AIMessage(content="🚨 [HỆ THỐNG] Lỗi kết nối nguồn tin (API 401). CEO hãy kiểm tra lại Key Perplexity.")],
-                "next_step": "FINISH" # Dừng ngay lập tức để bảo vệ tài nguyên
-            }
-
-        # --- TẦNG PHÒNG THỦ 2: XỬ LÝ KẾT QUẢ THÀNH CÔNG ---
-        report_content = f"🔍 **[BÁO CÁO CRO - {clean_query.upper()}]**\n\n{raw_res}"
+        # --- XỬ LÝ KẾT QUẢ THÀNH CÔNG (Giữ nguyên logic cũ của bạn) ---
+        report_content = f"🔍 **[BÁO CÁO (ZERO COST) - {clean_query.upper()}]**\n\n{raw_res}"
+        
         if is_pure_research:
-            # Nếu CEO chỉ muốn nghiên cứu (Tab Research), kết thúc tại đây.
             next_destination = "Secretary"
         else:
-            # Thay vì st.session_state, ta dùng task_type được Dashboard gửi qua Server
             if state.get("task_type") == "dynamic":
                 next_destination = "Orchestrator"
             else:
                 next_destination = "Supervisor"
 
         # ============================================================
-        # 🟢 [CHÈN ĐOẠN NÀY VÀO] GHI SỔ CÔNG VIỆC
+        # 🟢 GHI SỔ CÔNG VIỆC (LOGGING)
         # ============================================================
         try:
             log_work_to_db(
                 agent="Researcher",
-                task=clean_query,   # Đề bài sếp giao
-                result=raw_res,     # Kết quả tìm được
-                tool="Perplexity",  # Súng đã dùng
-                start_time=start_time # Thời gian bắt đầu
+                task=clean_query,
+                result=raw_res,
+                tool="DuckDuckGo+Gemini", # Đổi tên tool để biết là hàng miễn phí
+                start_time=start_time
             )
         except Exception as log_err:
             print(colored(f"⚠️ Lỗi ghi log kế toán: {log_err}", "yellow"))
-
-
-        return {
-            "messages": [AIMessage(content=report_content)],
-            "next_step": next_destination,
-            "current_agent": "Researcher" # Định danh để Orchestrator biết ai vừa hoàn thành báo cáo
-        }
 
     except Exception as e:
         # TẦNG PHÒNG THỦ 3: NGOẠI LỆ
@@ -3209,4 +3308,3 @@ if __name__ == "__main__":
         asyncio.run(main_loop())
     except KeyboardInterrupt:
         print("\n👋 Đã thoát hệ thống.")
-
