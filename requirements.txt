@@ -27,3 +27,6 @@ fpdf2
 openai
 google-generativeai
 anthropic
+duckduckgo-search   
+beautifulsoup4                 
+lxml
