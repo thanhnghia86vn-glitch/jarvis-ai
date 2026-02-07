@@ -136,14 +136,14 @@ except: LLM_CLAUDE = None
 try:
     # A. Bản Logic (Xử lý văn bản dài cho Thư ký)
     LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", 
+        model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.3
     )
     
     # B. Bản Vision (Nano Banana - Chuyên xử lý ảnh cho Artist)
     LLM_GEMINI_VISION = ChatGoogleGenerativeAI(
-        model="gemini-3-pro-image-preview", 
+        model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.4
     )
@@ -3209,3 +3209,4 @@ if __name__ == "__main__":
         asyncio.run(main_loop())
     except KeyboardInterrupt:
         print("\n👋 Đã thoát hệ thống.")
+
