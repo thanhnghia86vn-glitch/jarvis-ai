@@ -72,7 +72,7 @@ client = None
 try:
     from main import (
         ai_app, log_work_to_db, auto_learning_cycle, morning_briefing_job,
-        vector_db, LLM_GPT4, LLM_PERPLEXITY, LLM_GEMINI_LOGIC, LLM_GEMINI_VISION,
+        vector_db, LLM_GPT4, LLM_GEMINI_LOGIC, LLM_GEMINI_VISION,
         CODER_PRIMARY, ingest_docs_to_memory, learn_knowledge, set_system_busy
     )
     AI_AVAILABLE = True
@@ -87,7 +87,7 @@ except Exception as e:
     ai_app = vector_db = LLM_GEMINI_LOGIC = LLM_GEMINI_VISION = None
 
 try:
-    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=os.environ.get("GOOGLE_API_KEY"))
 except:
     CHAT_MODEL = None
 
@@ -1455,3 +1455,4 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
+
