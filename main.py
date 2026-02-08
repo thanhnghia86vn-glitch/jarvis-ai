@@ -1859,17 +1859,18 @@ async def free_deep_research(query):
 async def researcher_node(state):
     """
     Agent Researcher: Chuyên gia phân tích thị trường 2026.
-    Nâng cấp: Tự động nhận diện Tag ngữ cảnh để quyết định hành động tiếp theo.
+    Phiên bản: ZERO COST (DuckDuckGo + Gemini Flash).
+    Giữ nguyên logic định tuyến và logging của hệ thống gốc.
     """
-    # 1. [BẤM GIỜ] Bắt đầu tính giờ làm việc
+    # 1. [BẤM GIỜ] Bắt đầu tính giờ làm việc (Quan trọng để tính KPI)
     start_time = time.time() 
     
-    print(colored("[🔍 RESEARCHER] Đang thực thi nhiệm vụ thám mã thị trường...", "cyan", attrs=["bold"]))
-    # 2. [FIX QUAN TRỌNG] LỌC TÌM LỆNH CỦA CEO (HUMAN)
+    print(colored("[🔍 RESEARCHER] Đang thực thi nhiệm vụ thám mã thị trường (Free)...", "cyan", attrs=["bold"]))
+
+    # 2. [GIỮ NGUYÊN] LỌC TÌM LỆNH CỦA CEO (HUMAN)
     messages = state.get("messages", [])
     
-    # Mặc định lấy tin cuối, nhưng sẽ ưu tiên tìm tin nhắn của NGƯỜI (Human) gần nhất
-    # Để tránh lấy nhầm tin nhắn điều phối của hệ thống
+    # Logic ưu tiên tìm tin nhắn người dùng thật
     target_msg_content = ""
     for msg in reversed(messages):
         if isinstance(msg, HumanMessage):
@@ -1877,111 +1878,60 @@ async def researcher_node(state):
             break
             
     if not target_msg_content:
-        target_msg_content = messages[-1].content # Fallback nếu không tìm thấy
+        target_msg_content = messages[-1].content # Fallback
+
+    # Phân tích ngữ cảnh lệnh
     is_pure_research = "[RESEARCH]" in target_msg_content
     clean_query = target_msg_content.replace("[RESEARCH]", "").replace("[ORCHESTRATOR]", "").strip()
-    # 2. Xây dựng Prompt Siêu Cấu Trúc (Sử dụng 4 cột trụ)
-    search_prompt = (
-        f"Nhiệm vụ: Phân tích thị trường 2026 cho: '{clean_query}'."
-        "\n\nYÊU CẦU BÁO CÁO 4 CỘT TRỤ:"
-        "\n1. [DỮ LIỆU VĨ MÔ]: Tình hình thị trường và công nghệ mới nhất."
-        "\n2. [BIẾN ĐỘNG THỰC TẾ]: Xu hướng tiêu dùng và 'nỗi đau' khách hàng."
-        "\n3. [ĐỐI THỦ TRỰC DIỆN]: Liệt kê 3 đối thủ và lợi thế của họ."
-        "\n4. [CƠ HỘI CHO CEO]: Insight quan trọng và dự báo 12 tháng tới."
-        "\n\nĐịnh dạng: Markdown chuyên nghiệp, có bảng so sánh."
-    )
-    
-    # try:
-    #     # 3. Triệu hồi Perplexity
-    #     response = LLM_PERPLEXITY.invoke([
-    #         SystemMessage(content="Bạn là Chief Research Officer. Chỉ trả về dữ liệu thực tế 2026, KHÔNG HTML."),
-    #         HumanMessage(content=search_prompt)
-    #     ])
-    #     raw_res = response.content
 
-    #     # --- TẦNG PHÒNG THỦ 1: CHẶN HTML & LỖI 401 ---
-    #     if any(x in raw_res.lower() for x in ["<html>", "401 authorization", "cloudflare"]):
-    #         return {
-    #             "messages": [AIMessage(content="🚨 [HỆ THỐNG] Lỗi kết nối nguồn tin (API 401). CEO hãy kiểm tra lại Key Perplexity.")],
-    #             "next_step": "FINISH" # Dừng ngay lập tức để bảo vệ tài nguyên
-    #         }
-
-    #     # --- TẦNG PHÒNG THỦ 2: XỬ LÝ KẾT QUẢ THÀNH CÔNG ---
-    #     report_content = f"🔍 **[BÁO CÁO CRO - {clean_query.upper()}]**\n\n{raw_res}"
-    #     if is_pure_research:
-    #         # Nếu CEO chỉ muốn nghiên cứu (Tab Research), kết thúc tại đây.
-    #         next_destination = "Secretary"
-    #     else:
-    #         # Thay vì st.session_state, ta dùng task_type được Dashboard gửi qua Server
-    #         if state.get("task_type") == "dynamic":
-    #             next_destination = "Orchestrator"
-    #         else:
-    #             next_destination = "Supervisor"
-
-    #     # ============================================================
-    #     # 🟢 [CHÈN ĐOẠN NÀY VÀO] GHI SỔ CÔNG VIỆC
-    #     # ============================================================
-    #     try:
-    #         log_work_to_db(
-    #             agent="Researcher",
-    #             task=clean_query,   # Đề bài sếp giao
-    #             result=raw_res,     # Kết quả tìm được
-    #             tool="Perplexity",  # Súng đã dùng
-    #             start_time=start_time # Thời gian bắt đầu
-    #         )
-    #     except Exception as log_err:
-    #         print(colored(f"⚠️ Lỗi ghi log kế toán: {log_err}", "yellow"))
-
-
-    #     return {
-    #         "messages": [AIMessage(content=report_content)],
-    #         "next_step": next_destination,
-    #         "current_agent": "Researcher" # Định danh để Orchestrator biết ai vừa hoàn thành báo cáo
-    #     }
-    #  nội dung điều chỉnh đoạn trên nhằm giảm chi phí tìm kiếm.
     try:
-        # --- [THAY ĐỔI] GỌI HÀM MIỄN PHÍ THAY VÌ API TRẢ PHÍ ---
-        # Chúng ta bỏ qua bước check HTML/401 vì hàm tự viết không bị lỗi này
-        
-        # Gọi hàm free_deep_research vừa viết ở trên
-        # Vì nó là async function, nên dùng await (nếu researcher_node là async)
-        # Nếu researcher_node của bạn là def thường (sync), hãy dùng: asyncio.run(free_deep_research(clean_query))
-        
+        # 3. [THAY ĐỔI] THỰC THI TÌM KIẾM MIỄN PHÍ
+        # Thay vì gọi Perplexity ($), ta gọi hàm 'thợ lặn' DuckDuckGo ($0)
+        # Lưu ý: Hàm free_deep_research cần được định nghĩa ở đầu file như đã hướng dẫn
         raw_res = await free_deep_research(clean_query) 
 
-        # --- XỬ LÝ KẾT QUẢ THÀNH CÔNG (Giữ nguyên logic cũ của bạn) ---
+        # Tạo nội dung báo cáo
         report_content = f"🔍 **[BÁO CÁO (ZERO COST) - {clean_query.upper()}]**\n\n{raw_res}"
         
+        # 4. [GIỮ NGUYÊN] LOGIC ĐỊNH TUYẾN (ROUTING)
+        # Không được làm mất phần này, nếu không Agent sẽ không biết đi đâu tiếp theo
         if is_pure_research:
+            # Nếu CEO chọn Tab Research riêng biệt -> Kết thúc tại Thư ký
             next_destination = "Secretary"
         else:
+            # Nếu chạy trong luồng tự động
             if state.get("task_type") == "dynamic":
                 next_destination = "Orchestrator"
             else:
                 next_destination = "Supervisor"
 
-        # ============================================================
-        # 🟢 GHI SỔ CÔNG VIỆC (LOGGING)
-        # ============================================================
+        # 5. [GIỮ NGUYÊN] GHI SỔ CÔNG VIỆC (LOGGING)
+        # Quan trọng để tính lương/XP cho Agent
         try:
             log_work_to_db(
                 agent="Researcher",
-                task=clean_query,
-                result=raw_res,
-                tool="DuckDuckGo+Gemini", # Đổi tên tool để biết là hàng miễn phí
-                start_time=start_time
+                task=clean_query,       # Đề bài sếp giao
+                result=raw_res,         # Kết quả tìm được
+                tool="DuckDuckGo+Gemini", # Đổi tên tool để phân biệt với Perplexity cũ
+                start_time=start_time   # Thời gian thực thi
             )
         except Exception as log_err:
             print(colored(f"⚠️ Lỗi ghi log kế toán: {log_err}", "yellow"))
 
+        # 6. TRẢ VỀ KẾT QUẢ CHUẨN
+        return {
+            "messages": [AIMessage(content=report_content)],
+            "next_step": next_destination,
+            "current_agent": "Researcher" # Định danh người vừa làm xong
+        }
+
     except Exception as e:
-        # TẦNG PHÒNG THỦ 3: NGOẠI LỆ
-        print(colored(f"Lỗi Researcher: {e}", "red"))
+        # TẦNG PHÒNG THỦ: XỬ LÝ NGOẠI LỆ
+        print(colored(f"❌ Lỗi Researcher: {e}", "red"))
         return {
             "messages": [AIMessage(content=f"⚠️ Trục trặc kỹ thuật khi quét dữ liệu: {str(e)}")],
             "next_step": "FINISH" 
         }
-
 #  ---- Tài Chính----
 def investment_node(state):
     """
@@ -3235,25 +3185,42 @@ async def morning_briefing_job():
             # -> Chiến lược: Nếu tin trong DB mới update < 24h thì dùng lại. Nếu cũ hơn thì Search mới.
             
             # (Ở đây để đơn giản và chắc chắn có tin mới, ta ưu tiên Search Perplexity nếu có)
-            if LLM_PERPLEXITY:
-                res = await LLM_PERPLEXITY.ainvoke(f"Tin tức mới nhất 24h qua về: {topic}")
-                content = res.content
-                source_note = "(Nguồn: Perplexity Live)"
+            # 1. Ưu tiên 1: Tìm kiếm tin mới nhất trên mạng (Miễn phí)
+            print(colored(f"--> Đang quét tin (Free): {topic}...", "white"))
+            
+            # Gọi hàm 'thợ lặn' DuckDuckGo + Gemini
+            search_res = await free_deep_research(f"Tin tức mới nhất 24h qua về: {topic}")
+            
+            # 2. Logic kiểm tra kết quả:
+            # Nếu tìm thấy tin mới (không báo lỗi/không rỗng) -> Dùng tin mới
+            if search_res and "Không tìm thấy" not in search_res and "Lỗi" not in search_res:
+                content = search_res
+                source_note = "(Nguồn: DuckDuckGo + Gemini)"
+            
+            # 3. Ưu tiên 2: Nếu mạng lỗi hoặc không có tin -> Dùng Ký ức cũ (nếu có)
             elif existing_knowledge:
                 content = existing_knowledge
-                source_note = "(Nguồn: Ký ức nội bộ)"
+                source_note = "(Nguồn: Ký ức nội bộ - Fallback)"
+            
+            # 4. Trường hợp xấu nhất: Không có gì cả
             else:
-                content = "Không tìm thấy thông tin mới."
+                content = "Không tìm thấy thông tin mới và chưa có dữ liệu trong ký ức."
 
             # Lưu lại vào bộ đệm báo cáo
             report_buffer.append(f"### {topic} {source_note}\n{content[:1000]}...\n")
             
             # Ghi nhớ vào Vector DB (để dành cho lần sau)
-            if vector_db and "Perplexity" in source_note:
+            if vector_db and "DuckDuckGo" in source_note:
                 await asyncio.to_thread(
                     vector_db.add_texts,
                     texts=[content],
-                    metadatas=[{"source": "Morning_Briefing", "agent": role_tag, "topic": topic, "date": datetime.now().isoformat()}]
+                    metadatas=[{
+                        "source": "Morning_Briefing", 
+                        "agent": role_tag, 
+                        "topic": topic, 
+                        "date": datetime.now().isoformat(),
+                        "tool": "Free-Search" # Đánh dấu là tin miễn phí
+                    }]
                 )
 
         except Exception as e:
