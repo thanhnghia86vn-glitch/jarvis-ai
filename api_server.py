@@ -87,7 +87,7 @@ except Exception as e:
     ai_app = vector_db = LLM_GEMINI_LOGIC = LLM_GEMINI_VISION = None
 
 try:
-    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.environ.get("GOOGLE_API_KEY"))
 except:
     CHAT_MODEL = None
 
@@ -1237,34 +1237,32 @@ async def download_database():
 @app.post("/api/speak")
 async def api_speak(request: SpeakRequest):
     """
-    API Tạo giọng nói (Đã tối ưu hóa Non-blocking & Fail-safe).
+    API Tạo giọng nói (Đã nâng cấp: Ưu tiên MIỄN PHÍ với gTTS)
+    Thay thế OpenAI TTS ($$) bằng Google TTS ($0) để giảm chi phí vận hành.
     """
-    # 1. Kiểm tra an toàn: Nếu module voice chưa load hoặc client chưa có -> Bỏ qua nhẹ nhàng
-    if not VOICE_AVAILABLE or 'client' not in globals() or client is None:
-        # Trả về 204 (No Content) để Dashboard biết mà im lặng, không báo lỗi đỏ
-        return Response(status_code=204)
-    
     try:
-        # 2. Tối ưu chi phí & Tốc độ: Chỉ đọc 500 ký tự đầu
-        # (J.A.R.V.I.S không nên đọc cả bài văn dài, tốn tiền và lâu)
-        safe_text = request.text[:1000] 
+        # 1. Lấy văn bản và lọc sạch
+        # Cắt ngắn 500 ký tự để đọc cho nhanh
+        safe_text = request.text[:500] 
 
-        # 3. Kỹ thuật Non-blocking (QUAN TRỌNG NHẤT)
-        # Đẩy việc gọi OpenAI sang luồng khác để Server vẫn nhận chat của người khác được
-        def _generate_audio():
-            return client.audio.speech.create(
-                model="tts-1",
-                voice="onyx", 
-                input=safe_text
-            )
+        # 2. Dùng gTTS (Miễn phí) thay vì client.audio.speech.create (Tốn tiền)
+        # Tận dụng lại logic của thư viện gTTS đã import
+        def _generate_free_audio():
+            # tld='com.vn' để giọng đọc thuần Việt hơn
+            tts = gTTS(text=safe_text, lang='vi', tld='com.vn')
+            buffer = io.BytesIO()
+            tts.write_to_fp(buffer)
+            buffer.seek(0)
+            return buffer.read()
+
+        # Chạy trong luồng riêng để không treo server
+        audio_content = await run_in_threadpool(_generate_free_audio)
         
-        # Dùng await để đợi luồng phụ xử lý xong
-        response = await run_in_threadpool(_generate_audio)
-        return Response(content=response.content, media_type="audio/mpeg")
+        return Response(content=audio_content, media_type="audio/mpeg")
 
     except Exception as e:
         logger.error(f"🚨 [VOICE ERROR]: {str(e)}")
-        # Nếu lỗi (hết tiền, mất mạng...), trả về 204 để Dashboard vẫn chạy tiếp mượt mà
+        # Trả về 204 để Dashboard không báo lỗi đỏ nếu mất mạng
         return Response(status_code=204)
 
 # --- CẤU HÌNH HỌC TẬP ---
@@ -1414,19 +1412,23 @@ async def health_check():
 
 def get_latest_audit_report():
     """
-    Hàm đọc báo cáo mới nhất trong thư mục projects
+    Hàm đọc báo cáo mới nhất trong thư mục projects (Đã tối ưu: Không dùng glob)
     """
     try:
-        # 1. Trỏ đúng vào thư mục 'projects'
-        # Tìm tất cả file .md (Bao gồm cả Project_Audit và Morning_Briefing)
-        search_path = os.path.join("projects", "*.md") 
-        list_of_files = glob.glob(search_path)
+        project_dir = "projects"
+        if not os.path.exists(project_dir):
+            return "Thưa CEO, thư mục 'projects' chưa được khởi tạo."
+
+        # 1. Tìm tất cả file .md bằng os.listdir (Nhanh và không cần import glob)
+        # Chỉ lấy file có đuôi .md
+        all_files = [os.path.join(project_dir, f) for f in os.listdir(project_dir) if f.lower().endswith('.md')]
         
-        if not list_of_files:
-            return "Thưa CEO, kho dữ liệu (folder projects) hiện đang trống. Chưa có báo cáo nào được tạo."
+        if not all_files:
+            return "Thưa CEO, kho dữ liệu hiện đang trống. Chưa có báo cáo nào."
             
         # 2. Tìm file mới nhất dựa trên thời gian tạo (Create Time)
-        latest_file = max(list_of_files, key=os.path.getctime)
+        # Hàm os.path.getctime lấy thời gian tạo file
+        latest_file = max(all_files, key=os.path.getctime)
         
         # Lấy tên file cho đẹp
         filename = os.path.basename(latest_file)
@@ -1453,4 +1455,3 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
-
