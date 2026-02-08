@@ -220,7 +220,7 @@ CREATIVE_PRIMARY = LLM_CLAUDE if LLM_CLAUDE else LLM_GPT4
 LOGIC_PRIMARY = LLM_GPT4
 
 # Researcher -> Perplexity
-RESEARCHER_PRIMARY = LLM_PERPLEXITY if LLM_PERPLEXITY else LLM_GEMINI_LOGIC
+RESEARCHER_PRIMARY = LLM_FAST
 
 
 
@@ -1821,7 +1821,7 @@ async def free_deep_research(query):
     print(colored(f"🕵️ [FREE SCOUT] Đang đào dữ liệu: {query}...", "cyan"))
     
     try:
-        results = DDGS().text(query, max_results=25) # <--- LÊN 10
+        results = DDGS().text(query, max_results=10) # <--- LÊN 10
     except: return "Lỗi DuckDuckGo"
 
     if not results: return "Không tìm thấy tin."
