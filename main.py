@@ -1763,36 +1763,34 @@ BUYER_PROFILE = {
     "delivery_method": "Fast Shipping",
     "accounts": ["Shopee_API_Key", "Taobao_Token", "Mouser_ID"]
 }
-def procurement_node(state):
+async def procurement_node(state): # <--- Thêm async
     """
-    Agent Procurement: Tối ưu hóa chuỗi cung ứng dựa trên vị trí thực tế của CEO.
+    Agent Procurement: Tra cứu giá cả (Đã sửa: Dùng Free Search).
     """
-    print(colored("[🛒 PROCUREMENT] Đang tối ưu hóa lộ trình hàng hóa về Phan Thiết...", "yellow", attrs=["bold"]))
+    print(colored("[🛒 PROCUREMENT] Đang tối ưu hóa lộ trình hàng hóa...", "yellow", attrs=["bold"]))
     
-    # 1. Load hồ sơ mua hàng (Mockup)
-    buyer_config = BUYER_PROFILE # Lấy từ file cấu hình trên
-    
+    # ... (Giữ nguyên phần lấy messages và config) ...
+    buyer_config = BUYER_PROFILE
     messages = state.get("messages", [])
-    hw_report = next((m.content for m in reversed(messages) if "🛠️" in m.content), "Không tìm thấy danh mục linh kiện.")
+    hw_report = next((m.content for m in reversed(messages) if "🛠️" in m.content), "Không tìm thấy danh mục.")
 
-    # 2. Xây dựng lệnh truy vấn chuyên sâu
-    prompt = (
-        "Bạn là Chuyên gia Logisitics và Thu mua."
-        f"\nĐỊA CHỈ NHẬN: {buyer_config['address']}"
-        f"\nDANH MỤC: {hw_report}"
-        "\n\nNHIỆM VỤ:"
-        "\n1. TÌM GIÁ: Tra cứu giá thực tế năm 2026 trên Mouser, Digikey và Shopee."
-        "\n2. TÍNH PHÍ VẬN CHUYỂN: Ước tính phí ship và thuế nhập khẩu về Việt Nam."
-        "\n3. LẬP GIỎ HÀNG: Tạo danh sách link sản phẩm sẵn sàng để thanh toán."
-    )
-
-    # Sử dụng Perplexity để check giá thực tế
-    response = LLM_PERPLEXITY.invoke([SystemMessage(content=prompt)])
-
-    return {
-        "messages": [AIMessage(content=f"🛒 **[PHIẾU ĐỀ XUẤT MUA SẮM & VẬN CHUYỂN]**\n\n{response.content}")],
-        "next_step": "Investment" # Chuyển sang Tài chính để CEO duyệt chi
-    }
+    # Prompt điều tra giá
+    query = f"Tra cứu giá linh kiện điện tử năm 2026 tại Việt Nam cho: {hw_report[:200]}"
+    
+    # [FIX] Dùng hàm miễn phí thay vì Perplexity
+    try:
+        price_data = await free_deep_research(query)
+        
+        # Dùng Gemini để định dạng lại thành bảng báo giá
+        format_prompt = f"Từ dữ liệu này: {price_data}\nHãy lập bảng báo giá ước tính (VND) và phí vận chuyển về {buyer_config['address']}."
+        response_content = await LLM_GEMINI_LOGIC.ainvoke(format_prompt)
+        
+        return {
+            "messages": [AIMessage(content=f"🛒 **[PHIẾU ĐỀ XUẤT MUA SẮM (FREE)]**\n\n{response_content.content}")],
+            "next_step": "Investment"
+        }
+    except Exception as e:
+        return {"messages": [AIMessage(content=f"Lỗi tra giá: {e}")], "next_step": "FINISH"}
 # ============================================================================
 # NODE: RESEARCHER (Chuyên gia Phân tích Thị trường & Đối thủ)
 # ============================================================================
@@ -2362,54 +2360,44 @@ def storytelling_node(state):
 # ============================================================================
 # NODE: R&D STRATEGY (Giám đốc Chiến lược - CSO)
 # ============================================================================
-def research_development_agent(state):
+async def research_development_agent(state): # <--- Thêm async
     """
-    Agent R&D: Kết hợp tìm kiếm thời gian thực và phân tích mô hình PESTLE/Roadmap.
+    Agent R&D: Chiến lược (Đã sửa: Dùng Free Search).
     """
     print(colored("[🧠 R&D STRATEGY] Đang thiết lập tầm nhìn chiến lược...", "blue", attrs=["bold"]))
     
     messages = state.get("messages", [])
     user_input = messages[-1].content
-    
-    # 1. Truy xuất ký ức công ty để đảm bảo chiến lược đồng nhất
     company_context = search_memory("Tầm nhìn và mục tiêu chiến lược AI Corporation")
     
-    # 2. Bước nghiên cứu thực tế (Sử dụng Perplexity để tránh nói sáo rỗng)
-    # Chúng ta yêu cầu AI tìm dữ liệu thực tế trước khi phân tích
-    search_query = f"Xu hướng công nghệ, đối thủ cạnh tranh và rủi ro thị trường năm 2026 cho: {user_input}"
+    # [FIX] Dùng Free Search thay vì Perplexity
+    search_query = f"Xu hướng công nghệ và đối thủ cạnh tranh 2026 cho: {user_input}"
     
     try:
-        # Lấy dữ liệu thực tế từ internet
-        market_data = LLM_PERPLEXITY.invoke([
-            SystemMessage(content="Bạn là chuyên gia phân tích dữ liệu thị trường."),
-            HumanMessage(content=search_query)
-        ]).content
+        # Lấy dữ liệu thực tế (Miễn phí)
+        market_data = await free_deep_research(search_query)
         
-        # 3. Tổng hợp thành báo cáo chiến lược chuyên sâu
-        # Kết hợp: Dữ liệu thực tế + Prompt hệ thống + Ngữ cảnh công ty
+        # Tổng hợp bằng GPT-4 (Vì cần tư duy chiến lược cao)
         prompt_template = ChatPromptTemplate.from_messages([
             ("system", STRATEGY_SYSTEM_PROMPT),
             ("human", (
-                f"YÊU CẦU NGHIÊN CỨU: {user_input}\n\n"
-                f"DỮ LIỆU THỊ TRƯỜNG THỰC TẾ: {market_data}\n\n"
-                f"BỐI CẢNH CÔNG TY: {company_context}\n\n"
-                "Hãy lập báo cáo chiến lược chi tiết (PESTLE, Roadmap 2-5 năm)."
+                f"YÊU CẦU: {user_input}\n"
+                f"DỮ LIỆU THỰC TẾ: {market_data}\n"
+                f"BỐI CẢNH CTY: {company_context}\n"
+                "Lập báo cáo chiến lược."
             ))
         ])
         
-        # Sử dụng GPT-4o để tổng hợp vì khả năng viết báo cáo rất tốt
         chain = prompt_template | LLM_GPT4
-        response = chain.invoke({})
+        response = await chain.ainvoke({}) # Dùng ainvoke
         
         return {
-            "messages": [AIMessage(content=f"🧠 [BÁO CÁO CHIẾN LƯỢC R&D]:\n{response.content}")],
+            "messages": [AIMessage(content=f"🧠 [BÁO CÁO R&D (FREE DATA)]:\n{response.content}")],
             "next_step": "Supervisor"
         }
         
     except Exception as e:
-        print(colored(f"Lỗi R&D Agent: {e}", "red"))
         return {"next_step": "Supervisor", "error_log": [str(e)]}
-
 # ==========================================
 # --- 4. THIẾT LẬP LUỒNG AGENT (GRAPH) ---
 # ==========================================
@@ -3060,14 +3048,17 @@ async def specialized_training_job(role_tag: str):
         for sub in sub_topics:
             print(colored(f"   ↳ Nghiên cứu: {sub[:40]}...", "white"))
             # Ưu tiên Perplexity
-            if LLM_PERPLEXITY:
-                try: content = (await LLM_PERPLEXITY.ainvoke(f"Nghiên cứu: {sub}")).content
-                except: content = (await LLM_UNIVERSAL.ainvoke(f"Chi tiết về: {sub}")).content
-            else:
-                content = (await LLM_UNIVERSAL.ainvoke(f"Chi tiết về: {sub}")).content
+            # Không dùng Perplexity nữa, chuyển sang Free Deep Research
+            print(colored(f"   ↳ Nghiên cứu (Zero Cost): {sub[:40]}...", "white"))
+            
+            # Gọi hàm 'thợ lặn' miễn phí (DuckDuckGo + Gemini)
+            # Hàm này đã được định nghĩa ở đầu file main.py
+            content = await free_deep_research(f"Chi tiết chuyên sâu về: {sub}")
             
             full_kb.append(content)
-            await asyncio.sleep(10) # Nghỉ 5s
+            
+            # Giảm thời gian chờ từ 10s xuống 2s (Vì DuckDuckGo không tính tiền theo giây)
+            await asyncio.sleep(2)
             
         # Bước 3: Tổng hợp luận văn
         print(colored("   ↳ Tổng hợp luận văn...", "green"))
