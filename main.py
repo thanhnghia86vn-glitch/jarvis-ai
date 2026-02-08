@@ -140,14 +140,14 @@ except: LLM_CLAUDE = None
 try:
     # A. Bản Logic (Xử lý văn bản dài cho Thư ký)
     LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", 
+        model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.3
     )
     
     # B. Bản Vision (Nano Banana - Chuyên xử lý ảnh cho Artist)
     LLM_GEMINI_VISION = ChatGoogleGenerativeAI(
-        model="gemini-3-pro-image-preview", 
+        model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
         temperature=0.4
     )
@@ -155,6 +155,13 @@ try:
 except: 
     LLM_GEMINI_LOGIC = None
     LLM_GEMINI_VISION = None
+
+LLM_FAST = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash-lite", 
+    google_api_key=os.environ.get("GOOGLE_API_KEY"),
+    temperature=0.3,
+    convert_system_message_to_human=True
+)
 # --- 5. KHỞI TẠO "BIỆT ĐỘI BẤT TỬ" (FALLBACK CHAIN) ---
 # Đây là model thông minh: Tự động chuyển làn khi gặp sự cố
 try:
@@ -1846,7 +1853,7 @@ async def free_deep_research(query):
     
     # Gọi LLM_FAST (Gemini Flash - Miễn phí)
     # Lưu ý: Đảm bảo bạn đã khai báo LLM_FAST ở đầu file như hướng dẫn trước
-    response = await LLM_GEMINI_LOGIC.ainvoke(analyze_prompt)
+    response = await LLM_FAST.ainvoke(analyze_prompt)
     return response.content
 
 async def researcher_node(state):
