@@ -1897,7 +1897,7 @@ async def researcher_node(state):
         # Không được làm mất phần này, nếu không Agent sẽ không biết đi đâu tiếp theo
         if is_pure_research:
             # Nếu CEO chọn Tab Research riêng biệt -> Kết thúc tại Thư ký
-            next_destination = "Secretary"
+            next_destination = "FINISH"
         else:
             # Nếu chạy trong luồng tự động
             if state.get("task_type") == "dynamic":
@@ -2060,10 +2060,16 @@ def hr_orchestrator_node(state):
 
 def secretary_node(state):
     """
-    SECRETARY V3: COMMUNICATOR - CẦU NỐI THÔNG MINH
-    Biết cách diễn đạt lại kết quả từ các bộ phận khô khan (Coder, Researcher) 
-    thành ngôn ngữ con người dễ hiểu cho CEO.
+    SECRETARY V4: SMART FILTER
+    Chỉ biên tập lại văn bản. Nếu thấy Code hoặc Ảnh thì giữ nguyên.
     """
+    messages = state.get("messages", [])
+    last_msg = messages[-1].content
+    
+    # 1. KIỂM TRA: Nếu là sản phẩm kỹ thuật (Code/Ảnh/JSON) -> KHÔNG CAN THIỆP
+    if "```" in last_msg or "![" in last_msg or "{" in last_msg:
+        print(colored("[🗣️ COMMUNICATOR] Phát hiện sản phẩm kỹ thuật. Bỏ qua biên tập.", "magenta"))
+        return {"next_step": "FINISH"} # Trả về nguyên gốc
     print(colored("[🗣️ COMMUNICATOR] Đang biên tập lại nội dung...", "magenta", attrs=["bold"]))
     
     messages = state.get("messages", [])
@@ -2474,7 +2480,7 @@ workflow.add_conditional_edges(
         "Artist": "Artist",
         "Storyteller": "Storyteller", 
         "Secretary": "Secretary", 
-        "FINISH": "Secretary"
+        "FINISH": END
     }
 )
 
