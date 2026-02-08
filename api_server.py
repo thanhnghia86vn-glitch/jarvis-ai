@@ -13,6 +13,7 @@ import json
 import base64
 import asyncio
 import re
+import zipfile
 from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -1443,6 +1444,74 @@ def get_latest_audit_report():
         logger.error(f"🚨 [REPORT ERROR]: {str(e)}")
         return f"⚠️ Thưa CEO, không thể truy xuất hồ sơ: {str(e)}."
 
+@app.get("/api/backup/download_all")
+async def download_full_brain(background_tasks: BackgroundTasks): # <--- Thêm tham số này
+    """
+    Đóng gói toàn bộ Trí tuệ (DB + Vector + Code) để CEO tải về máy.
+    Cơ chế: Nén -> Gửi -> Tự hủy file nén để tiết kiệm ổ cứng.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    zip_filename = f"JAZVIC_BRAIN_BACKUP_{timestamp}.zip"
+    zip_path = os.path.join(BASE_DATA_DIR, zip_filename)
+
+    print(colored(f"📦 [BACKUP] Đang nén dữ liệu vào {zip_path}...", "yellow"))
+
+    try:
+        # Xóa file zip cũ (nếu lỡ còn sót lại)
+        if os.path.exists(zip_path): os.remove(zip_path)
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # 1. Backup SQLite (Sổ cái)
+            db_file = "ai_corp_projects.db"
+            full_db_path = os.path.join(BASE_DATA_DIR, db_file)
+            if os.path.exists(full_db_path):
+                zipf.write(full_db_path, arcname=db_file)
+            
+            # 2. Backup File Dữ liệu học (JSONL)
+            jsonl_file = "corporate_brain_dataset.jsonl"
+            full_jsonl_path = os.path.join(BASE_DATA_DIR, jsonl_file)
+            if os.path.exists(full_jsonl_path):
+                zipf.write(full_jsonl_path, arcname=jsonl_file)
+
+            # 3. Backup Bộ não Vector (db_knowledge)
+            knowledge_dir = os.path.join(BASE_DATA_DIR, "db_knowledge")
+            if os.path.exists(knowledge_dir):
+                for root, dirs, files in os.walk(knowledge_dir):
+                    for file in files:
+                        # Bỏ qua các file lock tạm thời để tránh lỗi
+                        if file.endswith(".lock"): continue
+                        
+                        file_path = os.path.join(root, file)
+                        # Giữ nguyên cấu trúc thư mục (vd: db_knowledge/index.bin)
+                        arcname = os.path.relpath(file_path, BASE_DATA_DIR)
+                        zipf.write(file_path, arcname)
+
+        file_size_mb = os.path.getsize(zip_path) / 1024 / 1024
+        print(colored(f"✅ [BACKUP] Đã nén xong: {file_size_mb:.2f} MB", "green"))
+        
+        # --- HÀM DỌN DẸP SAU KHI GỬI XONG ---
+        def cleanup_file(path: str):
+            try:
+                os.remove(path)
+                print(colored(f"🧹 [CLEANUP] Đã xóa file tạm: {path}", "grey"))
+            except Exception as e:
+                print(colored(f"⚠️ Lỗi dọn dẹp: {e}", "red"))
+
+        # Giao nhiệm vụ xóa file cho Background Task
+        background_tasks.add_task(cleanup_file, zip_path)
+
+        return FileResponse(
+            path=zip_path, 
+            filename=zip_filename, 
+            media_type='application/zip'
+        )
+
+    except Exception as e:
+        print(colored(f"❌ Lỗi Backup: {e}", "red"))
+        # Nếu lỗi thì xóa file tạm ngay lập tức
+        if os.path.exists(zip_path): os.remove(zip_path)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    
 if __name__ == "__main__":
     import uvicorn
     # Sử dụng biến môi trường PORT để tương thích Cloud Run sau này
@@ -1455,4 +1524,3 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
-
