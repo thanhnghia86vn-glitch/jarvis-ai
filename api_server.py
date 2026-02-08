@@ -87,7 +87,7 @@ except Exception as e:
     ai_app = vector_db = LLM_GEMINI_LOGIC = LLM_GEMINI_VISION = None
 
 try:
-    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=os.environ.get("GOOGLE_API_KEY"))
 except:
     CHAT_MODEL = None
 
@@ -1453,3 +1453,4 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
+
