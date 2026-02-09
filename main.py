@@ -945,7 +945,11 @@ def router_node(state):
         "[MARKETING]": "Marketing",
         "[LEGAL]": "Legal",
         "[STORY]": "Storyteller",
-        "[PUBLISH]": "Publisher"
+        "[PUBLISH]": "Publisher",
+        "HÃY NHỚ": "PreferenceLearner",
+        "TÔI THÍCH": "PreferenceLearner",
+        "ĐỪNG BAO GIỜ": "PreferenceLearner",
+        "GHI NHỚ": "PreferenceLearner"
     }
 
     # 5. KIỂM TRA TAG VÀ ĐỊNH TUYẾN
@@ -1225,6 +1229,61 @@ class SupervisorDecision(BaseModel):
     )
     reason: str = Field(..., description="Lý do điều phối.")
 
+# --- [NEW] LOAD CEO PROFILE ---
+def load_ceo_profile():
+    try:
+        with open("ceo_profile.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        # Profile mặc định nếu chưa có file
+        return {
+            "name": "CEO",
+            "style": {"communication": "Ngắn gọn"},
+            "interests": [],
+            "dislikes": []
+        }
+
+CEO_PROFILE = load_ceo_profile()
+
+def get_ceo_context_prompt():
+    """Tạo prompt ngữ cảnh cá nhân hóa"""
+    return f"""
+    THÔNG TIN NGƯỜI DÙNG (VITAL CONTEXT):
+    - Bạn đang phục vụ: {CEO_PROFILE['name']} ({CEO_PROFILE['role']}).
+    - Phong cách ưa thích: {CEO_PROFILE['style']['communication']}
+    - Mối quan tâm chính: {', '.join(CEO_PROFILE['interests'])}.
+    - TUYỆT ĐỐI TRÁNH: {', '.join(CEO_PROFILE['dislikes'])}.
+    
+    HÃY ĐIỀU CHỈNH MỌI CÂU TRẢ LỜI ĐỂ KHỚP VỚI "GU" CỦA CEO.
+    """
+
+async def learn_preference_node(state):
+    """
+    Agent chuyên ghi nhớ sở thích người dùng vào Vector DB (Long-term Memory).
+    """
+    messages = state.get("messages", [])
+    last_msg = messages[-1].content
+    
+    # Trích xuất nội dung cần nhớ
+    content_to_learn = last_msg.replace("hãy nhớ:", "").replace("nhớ là:", "").replace("lưu ý:", "").strip()
+    
+    # Lưu vào Vector DB với metadata đặc biệt
+    if vector_db:
+        await asyncio.to_thread(
+            vector_db.add_texts,
+            texts=[content_to_learn],
+            metadatas=[{
+                "source": "CEO_DIRECTIVE",
+                "type": "USER_PREFERENCE", # Đánh dấu đây là Sở thích
+                "timestamp": datetime.now().isoformat()
+            }]
+        )
+        
+    return {
+        "messages": [AIMessage(content=f"🧠 Đã ghi tạc vào tâm trí: '{content_to_learn}'. Từ nay tôi sẽ lưu ý điều này!")],
+        "next_step": "FINISH"
+    }
+
 async def supervisor_node(state):
     """
     SUPERVISOR V6: THE STRATEGIST (NHÀ CHIẾN LƯỢC)
@@ -1233,8 +1292,8 @@ async def supervisor_node(state):
     # 1. Thu thập dữ liệu toàn cục
     messages = state.get("messages", [])
     last_msg = messages[-1].content
-    
-    print(colored(f"\n[🧠 SUPERVISOR] Đang phân tích chiến lược cho: '{last_msg[:50]}...'", "cyan", attrs=["bold"]))
+    ceo_context = get_ceo_context_prompt()
+    print(colored(f"\n[🧠 SUPERVISOR] Đang tư duy theo phong cách của {CEO_PROFILE['name']}...", "cyan", attrs=["bold"]))
 
     # 2. Kiểm tra an toàn (Zombie Loop)
     if check_zombie_loop(messages):
@@ -1243,8 +1302,9 @@ async def supervisor_node(state):
     # 3. KÍCH HOẠT TƯ DUY CHIẾN LƯỢC (Chain of Thought)
     # Thay vì chọn 1 từ khóa, AI sẽ suy luận để chọn ra "Nước đi tiếp theo" tốt nhất
     strategy_prompt = """
+    {ceo_context}
     Bạn là Tổng Giám Đốc Điều Hành (COO) của hệ thống AI.
-    Hãy phân tích yêu cầu của CEO và chọn 1 trong các PHÒNG BAN sau để xử lý:
+    Dựa trên SỞ THÍCH và MỤC TIÊU của CEO, hãy chọn phòng ban xử lý tối ưu nhất:
 
     1. [INTERNAL_OPS]: Khi CEO hỏi về: Tiền nong, chi phí, log hoạt động, trạng thái server, kiểm tra hệ thống. (Xử lý tại chỗ).
     2. [RESEARCH_LAB]: Khi CEO cần thông tin mới, tin tức thị trường, giá cả, kiến thức, học thuật, hoặc câu đố/toán học.
@@ -2426,7 +2486,8 @@ nodes_map = {
     "Storyteller": storyteller_node, 
     "Orchestrator": dynamic_orchestrator,
     "Publisher": publisher_node, 
-    "Secretary": secretary_node
+    "Secretary": secretary_node,
+    "PreferenceLearner": learn_preference_node
 }
 
 for name, func in nodes_map.items():
@@ -2452,7 +2513,7 @@ workflow.add_conditional_edges(
         "Secretary": "Secretary"
     }
 )
-
+workflow.add_edge("PreferenceLearner", "FINISH")
 # --- 4.4 Logic Supervisor ---
 workflow.add_conditional_edges(
     "Supervisor", 
