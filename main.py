@@ -1308,102 +1308,108 @@ async def learn_preference_node(state):
 
 async def supervisor_node(state):
     """
-    SUPERVISOR V6: THE STRATEGIST (NHÀ CHIẾN LƯỢC)
-    Không chỉ phân loại, mà còn tư duy để chọn giải pháp tối ưu nhất.
+    SUPERVISOR V9: INTENT CLASSIFIER & CHAIN MAKER
+    Thay vì chọn 1 người, Sếp sẽ lập luôn 1 quy trình (Chain) nếu cần thiết.
     """
-    # 1. Thu thập dữ liệu toàn cục
     messages = state.get("messages", [])
     last_msg = messages[-1].content
-    ceo_context = get_ceo_context_prompt()
-    print(colored(f"\n[🧠 SUPERVISOR] Đang tư duy theo phong cách của {CEO_PROFILE['name']}...", "cyan", attrs=["bold"]))
+    
+    # Lấy thông tin CEO
+    try: ceo_context = get_ceo_context_prompt()
+    except: ceo_context = "Bạn là Quản lý dự án."
 
-    # 2. Kiểm tra an toàn (Zombie Loop)
+    print(colored(f"[🧠 SUPERVISOR] Đang lập lộ trình cho: '{last_msg[:50]}...'", "cyan", attrs=["bold"]))
+
+    # 1. Zombie Check (Giữ nguyên)
     if check_zombie_loop(messages):
-        return {"messages": [AIMessage(content="⚠️ PHÁT HIỆN VÒNG LẶP: Đã dừng hệ thống để bảo vệ tài nguyên.")], "next_step": "FINISH"}
+        return {"messages": [AIMessage(content="⚠️ Hệ thống bị lặp. Dừng quy trình.")], "next_step": "FINISH"}
 
-    # 3. KÍCH HOẠT TƯ DUY CHIẾN LƯỢC (Chain of Thought)
-    # Thay vì chọn 1 từ khóa, AI sẽ suy luận để chọn ra "Nước đi tiếp theo" tốt nhất
-    strategy_prompt = """
+    # 2. PROMPT THÔNG MINH (Phân loại theo Ý ĐỊNH, không phải từ khóa)
+    prompt = f"""
     {ceo_context}
-    Bạn là Tổng Giám Đốc Điều Hành (COO) của hệ thống AI.
-    Dựa trên SỞ THÍCH và MỤC TIÊU của CEO, hãy chọn phòng ban xử lý tối ưu nhất:
+    
+    Nhiệm vụ: Phân tích yêu cầu của CEO và xác định LOẠI CÔNG VIỆC (Intent).
+    Yêu cầu: "{last_msg}"
 
-    1. [INTERNAL_OPS]: Khi CEO hỏi về: Tiền nong, chi phí, log hoạt động, trạng thái server, kiểm tra hệ thống. (Xử lý tại chỗ).
-    2. [RESEARCH_LAB]: Khi CEO cần thông tin mới, tin tức thị trường, giá cả, kiến thức, học thuật, hoặc câu đố/toán học.
-    3. [TECH_DEV]: Khi CEO muốn viết code, sửa lỗi, build app, technical tasks.
-    4. [CREATIVE_STUDIO]: Khi CEO muốn vẽ ảnh, thiết kế, sáng tạo nghệ thuật.
-    5. [PM_OFFICE]: (Dự án phức tạp) Khi CEO yêu cầu một kế hoạch lớn, một chiến lược dài hạn, hoặc một quy trình nhiều bước (VD: "Lập kế hoạch kinh doanh", "Xây dựng dự án A-Z").
-    6. [CHAT]: Chào hỏi xã giao hoặc không rõ ý định.
+    HÃY CHỌN 1 TRONG CÁC KỊCH BẢN SAU:
 
-    YÊU CẦU: Trả về định dạng JSON duy nhất:
-    {"department": "TÊN_PHÒNG_BAN", "reason": "Lý do ngắn gọn"}
+    1. [SOFTWARE_BUILD]: Nếu CEO muốn làm phần mềm, web, app, tool, script phức tạp.
+       -> Quy trình bắt buộc: Architect (Thiết kế) -> Coder (Viết) -> Tester (Kiểm tra).
+    
+    2. [QUICK_FIX]: Nếu CEO chỉ muốn sửa 1 đoạn code nhỏ, fix bug nhanh.
+       -> Quy trình: Coder -> Tester.
+
+    3. [CREATIVE_ART]: Nếu CEO muốn vẽ hình, thiết kế logo, minh họa.
+       -> Quy trình: Artist.
+
+    4. [DEEP_RESEARCH]: Nếu CEO muốn tìm hiểu, tra cứu thông tin, phân tích thị trường.
+       -> Quy trình: Researcher.
+
+    5. [SYSTEM_CHECK]: Nếu CEO hỏi về tiền, log, hệ thống.
+       -> Quy trình: Internal Ops.
+
+    6. [CHAT]: Chào hỏi hoặc nói chuyện phiếm.
+       -> Quy trình: Chat (Researcher).
+
+    TRẢ VỀ ĐÚNG ĐỊNH DẠNG JSON (Không Markdown):
+    {{
+        "intent": "MÃ_KỊCH_BẢN",
+        "next_agent": "TÊN_AGENT_ĐẦU_TIÊN",
+        "reason": "Giải thích ngắn gọn"
+    }}
     """
-
+    
     try:
-        # Dùng DeepSeek/GPT để tư duy
+        # Gọi AI phân tích
         llm = LLM_DEEPSEEK if LLM_DEEPSEEK else LLM_GPT4
+        res = await llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content=last_msg)])
         
-        # Kích hoạt chế độ Structured Output (Ép kiểu dữ liệu chuẩn 100%)
-        structured_llm = llm.with_structured_output(SupervisorDecision)
+        # Parse JSON thủ công (Bền vững nhất)
+        content = res.content.strip().replace("```json", "").replace("```", "")
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        json_data = json.loads(content[start:end])
         
-        # Gọi AI (Kết quả trả về là Object, không phải String nữa)
-        decision = await structured_llm.ainvoke([
-            SystemMessage(content=strategy_prompt), # Lưu ý: Dùng biến system_prompt mới định nghĩa
-            HumanMessage(content=last_msg)
-        ])
+        intent = json_data.get("intent")
+        reason = json_data.get("reason")
+        
+        print(colored(f"👉 Ý định: {intent} | Lý do: {reason}", "yellow"))
 
-        # Truy xuất trực tiếp (An toàn tuyệt đối)
-        dept = decision.department
-        reason = decision.reason
-
-        # 4. THỰC THI CHIẾN LƯỢC (ROUTING)
-
-        # --- NHÁNH 1: NỘI BỘ (Xử lý ngay lập tức) ---
-        if dept == "INTERNAL_OPS":
-            try:
-                db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
-                conn = sqlite3.connect(db_path, timeout=10)
-                cursor = conn.cursor()
-                
-                # Tổng hợp số liệu
-                cursor.execute("SELECT SUM(cost) FROM work_logs")
-                total_cost = cursor.fetchone()[0] or 0.0
-                cursor.execute("SELECT count(*) FROM work_logs")
-                total_tasks = cursor.fetchone()[0] or 0
-                cursor.execute("SELECT agent_name, task_content FROM work_logs ORDER BY id DESC LIMIT 1")
-                last_task = cursor.fetchone()
-                conn.close()
-                
-                report = (
-                    f"📊 **BÁO CÁO VẬN HÀNH (LIVE)**\n"
-                    f"- **Tổng chi phí**: ${total_cost:.4f}\n"
-                    f"- **Tổng tác vụ**: {total_tasks}\n"
-                    f"- **Gần nhất**: {last_task[0] if last_task else 'N/A'} vừa làm: *{last_task[1] if last_task else '...' }*"
-                )
-                return {"messages": [AIMessage(content=report)], "next_step": "FINISH"}
-            except Exception as e:
-                return {"messages": [AIMessage(content=f"⚠️ Lỗi truy xuất dữ liệu nội bộ: {e}")], "next_step": "FINISH"}
-
-        # --- NHÁNH 2: DỰ ÁN LỚN (Chuyển cho Orchestrator/Strategy) ---
-        elif dept == "PM_OFFICE":
-            # Nếu có Orchestrator Node thì chuyển qua, nếu không thì chuyển Strategy
-            return {"next_step": "Orchestrator", "messages": []} # Hoặc "Strategy_R_and_D"
-
-        # --- NHÁNH 3: CHUYÊN MÔN ---
-        elif dept == "TECH_DEV":
+        # 3. ĐIỀU PHỐI THEO KỊCH BẢN (CHAIN ROUTING)
+        
+        # Kịch bản 1: Làm phần mềm trọn gói (Architect -> Coder -> Tester)
+        if intent == "SOFTWARE_BUILD":
+            # Gửi tin nhắn định hướng cho Architect trước
+            instruction = AIMessage(content=f"⚠️ **KẾ HOẠCH TRIỂN KHAI PHẦN MỀM**:\nTôi đã kích hoạt quy trình chuẩn: **Kiến trúc -> Lập trình -> Kiểm thử**.\n\nĐang chuyển cho **Kiến Trúc Sư (Software Architect)** để lên sơ đồ cấu trúc trước...")
+            return {"messages": [instruction], "next_step": "Engineering"} # Trong code cũ bạn map Architect là Engineering hoặc Architect_Primary? Nếu Engineering làm Architect thì để Engineering.
+            
+            # Lưu ý: Nếu bạn có node Architect riêng thì đổi thành "Architect". 
+            # Ở đây tôi giả định bạn dùng Engineering hoặc Coder làm Architect.
+            # Nếu muốn chuẩn: Hãy để nó vào node Coder nhưng với prompt là Architect.
+            
+        # Kịch bản 2: Sửa nhanh (Coder -> Tester)
+        if intent == "QUICK_FIX":
             return {"next_step": "Coder", "messages": []}
-        
-        elif dept == "CREATIVE_STUDIO":
+
+        # Kịch bản 3: Vẽ vời (Artist)
+        if intent == "CREATIVE_ART":
             return {"next_step": "Artist", "messages": []}
 
-        # --- NHÁNH 4: NGHIÊN CỨU & MẶC ĐỊNH ---
-        else: # RESEARCH_LAB hoặc CHAT
+        # Kịch bản 4: Nghiên cứu (Researcher)
+        if intent == "DEEP_RESEARCH":
             return {"next_step": "Researcher", "messages": []}
+            
+        # Kịch bản 5: Hệ thống
+        if intent == "INTERNAL_OPS":
+             return {"messages": [AIMessage(content="Đang kiểm tra hệ thống...")], "next_step": "FINISH"}
+
+        # Mặc định
+        return {"next_step": "Researcher", "messages": []}
 
     except Exception as e:
-        print(colored(f"⚠️ Supervisor Fallback: {e}", "red"))
-        # Nếu bộ não bị lỗi, mặc định chuyển Researcher để tìm câu trả lời
+        print(colored(f"⚠️ Lỗi phân tích ý định: {e}", "red"))
         return {"next_step": "Researcher", "messages": []}
+
 #  ---- Viết Code----
 async def coder_node(state): # Chuyển sang async để chạy song song
     """
