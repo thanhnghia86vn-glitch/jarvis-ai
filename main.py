@@ -2513,7 +2513,7 @@ workflow.add_conditional_edges(
         "Secretary": "Secretary"
     }
 )
-workflow.add_edge("PreferenceLearner", "FINISH")
+workflow.add_edge("PreferenceLearner", END)
 # --- 4.4 Logic Supervisor ---
 workflow.add_conditional_edges(
     "Supervisor", 
