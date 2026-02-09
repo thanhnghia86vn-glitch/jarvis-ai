@@ -32,6 +32,13 @@ from langchain_chroma import Chroma
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+# --- IMPORT MEMORY CORE (File memory_core.py bạn đã tạo) ---
+try:
+    from memory_core import MemorySystem
+    MEMORY_AVAILABLE = True
+except ImportError:
+    MEMORY_AVAILABLE = False
+    print("⚠️ Không tìm thấy file memory_core.py. Chạy chế độ không bộ nhớ.")
 load_dotenv()
 try:
     if os.name == 'posix': 
@@ -60,6 +67,39 @@ except ImportError:
     OCR_AVAILABLE = False
     print("⚠️ Cloud Mode: OCR modules disabled (Running logic only).")
 # --------------------------------------------
+# --- INIT DATABASE TOÀN CỤC (FIX LỖI TABLE NOT FOUND) ---
+def init_database_global():
+    """Khởi tạo bảng database ngay lập tức để tránh lỗi khi Agent chạy."""
+    db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        # Bảng Project (Lưu Chat History cho Dashboard)
+        c.execute("""CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp DATETIME
+        )""")
+        # Bảng Agent Status (Level/XP)
+        c.execute("""CREATE TABLE IF NOT EXISTS agent_status (
+            role_tag TEXT PRIMARY KEY, xp INTEGER DEFAULT 0, current_topic TEXT, last_updated TIMESTAMP
+        )""")
+        # Bảng Work Logs (Nhật ký làm việc & Tính tiền)
+        c.execute("""CREATE TABLE IF NOT EXISTS work_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, agent_name TEXT, 
+            task_content TEXT, result_summary TEXT, tool_used TEXT, cost REAL, duration REAL
+        )""")
+        # Bảng Meta-Cognition (Nhật ký tự nhận thức)
+        c.execute("""CREATE TABLE IF NOT EXISTS learning_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT, content TEXT, agent_name TEXT, timestamp TIMESTAMP
+        )""")
+        conn.commit()
+        conn.close()
+        print(f"✅ [DATABASE] Đã khởi tạo cấu trúc bảng tại {db_path}")
+    except Exception as e:
+        print(f"❌ [DATABASE ERROR] Không thể khởi tạo DB: {e}")
+
+# Gọi ngay khi file được import/chạy
+init_database_global()
+
 def auto_backup_brain():
     """
     Tự động nén và sao lưu bộ não AI Corporation.
@@ -165,35 +205,14 @@ LLM_FAST = ChatGoogleGenerativeAI(
 # --- 5. KHỞI TẠO "BIỆT ĐỘI BẤT TỬ" (FALLBACK CHAIN) ---
 # Đây là model thông minh: Tự động chuyển làn khi gặp sự cố
 try:
-    # Danh sách dự phòng: Nếu ông đầu tiên chết, ông sau sẽ lên thay
     backups = []
     if LLM_DEEPSEEK: backups.append(LLM_DEEPSEEK)
     if LLM_GPT4: backups.append(LLM_GPT4)
-    if LLM_CLAUDE: backups.append(LLM_CLAUDE)
-
-    # Model chính là Gemini Flash (Rẻ nhất)
-    # Lưu ý: Cần import model flash trong phần khởi tạo Gemini trước đó
     primary_model = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
-
-    # Tạo chuỗi Fallback
     LLM_UNIVERSAL = primary_model.with_fallbacks(backups)
-    
-    print(colored("🛡️ [SYSTEM] Đã kích hoạt cơ chế 'LLM_UNIVERSAL' (Auto-Fallback).", "green"))
-
-except Exception as e:
-    print(colored(f"⚠️ Không thể tạo Fallback Chain: {e}", "red"))
-    LLM_UNIVERSAL = LLM_GPT4 # Fallback cuối cùng
-
-# 5. CÁC CÔNG CỤ KHÁC (Giữ nguyên)
-try:
-    LLM_PERPLEXITY = ChatOpenAI(
-        model="sonar-pro",
-        temperature=0,
-        api_key=os.getenv("PERPLEXITY_API_KEY"),
-        base_url="https://api.perplexity.ai"
-    )
-    print("✅ [PERPLEXITY] Ready: Live Search.")
-except: LLM_PERPLEXITY = None
+    print("🛡️ [SYSTEM] Auto-Fallback Activated.")
+except:
+    LLM_UNIVERSAL = LLM_GPT4
 # Artist
 # =========================================================
 # 3. PHÂN BỔ QUYỀN LỰC (ROLE MAPPING)
@@ -222,10 +241,13 @@ LOGIC_PRIMARY = LLM_GPT4
 # Researcher -> Perplexity
 RESEARCHER_PRIMARY = LLM_FAST
 
-
-
 CODER_BACKUP = LLM_CLAUDE
 
+# --- KHỞI TẠO BỘ NÃO KÝ ỨC (SAU KHI CÓ DB & LLM) ---
+memory_bot = None
+if MEMORY_AVAILABLE and LLM_GPT4:
+    memory_bot = MemorySystem(vector_db=vector_db, llm_backend=LLM_GPT4)
+    print("🧠 [SYSTEM] Memory Core V2 Activated.")
 # ============================================================================
 # --- 1. ĐỊNH NGHĨA STATE (TRẠNG THÁI HỆ THỐNG) ---
 # ============================================================================
@@ -1496,7 +1518,7 @@ async def coder_node(state): # Chuyển sang async để chạy song song
             # TRẢ VỀ KẾT QUẢ THÀNH CÔNG
             return {
                 "messages": [AIMessage(content=best_result['full_reply'])],
-                "next_node": "Tester", # Chuyển sang Tester kiểm tra
+                "next_step": "Tester", # Chuyển sang Tester kiểm tra
                 "error_log": []        # Xóa sạch lỗi cũ vì đã thành công
             }
         
@@ -2320,106 +2342,99 @@ def artist_node(state):
             "next_step": "FINISH"
         }
 # ============================================================================
-# NODE: STORYTELLER (Nhà văn & Biên kịch chuyên nghiệp)
-
+# NODE: STORYTELLER (Đại Văn Hào - Hợp nhất Viết Mới & Viết Tiếp)
 # ============================================================================
 def storyteller_node(state):
-    print(colored("[✍️ STORYTELLER] Đang xây dựng thế giới và cốt truyện...", "cyan", attrs=["bold"]))
+    print(colored("[✍️ STORYTELLER] Đang phân tích mạch truyện...", "magenta", attrs=["bold"]))
     
     messages = state.get("messages", [])
-    # Lấy log lỗi nếu có để điều chỉnh văn phong
-    errors = state.get("error_log", [])
-    
     last_msg = messages[-1].content
     
-    # 1. PHÂN TÍCH NHU CẦU
-    is_continue = "[CONTINUE]" in last_msg.upper()
+    # 1. PHÂN TÍCH Ý ĐỊNH (INTENT DETECTION)
+    # Nếu có từ khóa [CONTINUE] hoặc "viết tiếp", "chương sau"...
+    is_continue = any(k in last_msg.upper() for k in ["[CONTINUE]", "VIẾT TIẾP", "CHƯƠNG SAU", "KỂ TIẾP"])
+    is_adjust = any(k in last_msg.upper() for k in ["SỬA LẠI", "ĐIỀU CHỈNH", "VIẾT LẠI", "ADJUST"])
+    
     clean_query = last_msg.replace("[STORY]", "").replace("[CONTINUE]", "").strip()
 
-    # 2. TRÍ NHỚ MẠCH TRUYỆN (Thay thế st.session_state)
-    # Chúng ta lấy bối cảnh từ tin nhắn AIMessage gần nhất trong lịch sử hội thoại của Graph
-    previous_full_story_content = ""
-    if is_continue:
-        for m in reversed(messages):
-            if isinstance(m, AIMessage) and len(m.content) > 100:
-                previous_full_story_content = m.content
+    # 2. TRÍ NHỚ MẠCH TRUYỆN (CONTEXT RETRIEVAL)
+    # Tìm lại nội dung truyện gần nhất mà AI từng viết
+    previous_context = ""
+    if is_continue or is_adjust:
+        for m in reversed(messages[:-1]): # Duyệt ngược từ tin nhắn áp chót
+            if isinstance(m, AIMessage) and len(m.content) > 100: # Lấy tin nhắn dài của AI
+                previous_context = m.content
+                print(colored("📜 Đã tìm thấy cốt truyện cũ để xử lý...", "yellow"))
                 break
+    
+    # 3. CHỌN CHIẾN LƯỢC PROMPT (PROMPT STRATEGY)
+    
+    if is_continue:
+        # --- CHIẾN LƯỢC: VIẾT TIẾP (SERIAL WRITING) ---
+        print(colored("👉 Chế độ: VIẾT TIẾP MẠCH TRUYỆN", "cyan"))
+        # Lấy 1000 ký tự cuối của chương trước để làm đà
+        context_tail = previous_context[-1000:] if previous_context else "Chưa có nội dung cũ."
         
-        if previous_full_story_content:
-            # Lấy đoạn kết để AI viết nối tiếp không bị lặp
-            context_tail = previous_full_story_content[-1000:]
-            print(colored(f"📜 Đã tìm thấy mạch truyện cũ, đang nối tiếp...", "yellow"))
-            previous_full_story_content = context_tail
+        prompt = (
+            "Bạn là Nhà văn Best-seller chuyên viết tiểu thuyết dài kỳ."
+            "\nNHIỆM VỤ: Viết chương tiếp theo cho câu chuyện."
+            "\n\nBỐI CẢNH CŨ (ĐỂ NỐI MẠCH):"
+            f"\n...{context_tail}"
+            "\n\nYÊU CẦU:"
+            "\n- Tuyệt đối KHÔNG tóm tắt lại chuyện cũ."
+            "\n- Bắt đầu ngay vào diễn biến tiếp theo."
+            "\n- Giữ đúng giọng văn và tính cách nhân vật đã thiết lập."
+            "\n- Nếu user có chỉ đạo mới trong lệnh, hãy bẻ lái cốt truyện theo đó."
+        )
+        
+    elif is_adjust:
+        # --- CHIẾN LƯỢC: ĐIỀU CHỈNH/SỬA LỖI (REFINEMENT) ---
+        print(colored("👉 Chế độ: ĐIỀU CHỈNH NỘI DUNG", "cyan"))
+        prompt = (
+            "Bạn là Biên tập viên lão làng."
+            "\nNHIỆM VỤ: Viết lại/Chỉnh sửa đoạn văn trước đó theo yêu cầu mới."
+            "\n\nBẢN GỐC:"
+            f"\n{previous_context[:2000]}..." # Giới hạn độ dài để tránh quá token
+            "\n\nYÊU CẦU CHỈNH SỬA:"
+            f"\n{clean_query}"
+        )
 
-    # 3. THIẾT LẬP PROMPT CHIẾN THUẬT
-    prompt = (
-        "Bạn là Nhà văn Best-seller và Biên kịch xuất sắc. "
-        "\nNHIỆM VỤ: Sáng tác nội dung có chiều sâu, lôi cuốn."
-        "\n\nNGUYÊN TẮC VÀNG:"
-        + (f"\n- MẠCH TRUYỆN TRƯỚC: '{previous_full_story_content}' (Hãy viết tiếp từ đây, không chào hỏi lại)." if previous_full_story_content else "\n- ĐÂY LÀ KHỞI ĐẦU: Hãy tạo một mở đầu ấn tượng.") +
-        "\n- CẤU TRÚC: Show, Don't Tell. Sử dụng nhiều từ ngữ gợi hình, gợi cảm."
-        "\n- HÌNH ẢNH: Sau mỗi phân đoạn cao trào, hãy chèn một Visual Prompt tiếng Anh trong ngoặc vuông [Visual: ...]."
-    )
+    else:
+        # --- CHIẾN LƯỢC: SÁNG TÁC MỚI (NEW CREATION) ---
+        print(colored("👉 Chế độ: KHỞI TẠO CỐT TRUYỆN MỚI", "cyan"))
+        prompt = (
+            "Bạn là Tiểu thuyết gia đại tài."
+            "\nNHIỆM VỤ: Sáng tác một câu chuyện mới đầy lôi cuốn."
+            "\n\nYÊU CẦU:"
+            "\n- Cấu trúc: Show, Don't Tell."
+            "\n- Xây dựng nhân vật có chiều sâu nội tâm."
+            "\n- Kết thúc đoạn này ở một cao trào (Cliffhanger) để kích thích đọc tiếp."
+        )
 
+    # 4. THỰC THI (LLM CALL)
     try:
-        # Lựa chọn Model: Ưu tiên Claude cho sáng tạo văn học
-        selected_llm = LLM_CLAUDE if 'LLM_CLAUDE' in globals() else LLM_GPT4
+        # Ưu tiên Claude cho văn học (Văn phong hay hơn GPT)
+        model = LLM_CLAUDE if LLM_CLAUDE else LLM_GPT4
         
-        response = selected_llm.invoke([
+        response = model.invoke([
             SystemMessage(content=prompt),
-            HumanMessage(content=clean_query)
+            HumanMessage(content=clean_query if not is_adjust else "Hãy thực hiện chỉnh sửa.")
         ])
 
-        # ĐỊNH TUYẾN: Thường sau khi kể chuyện sẽ kết thúc để CEO đọc, hoặc qua Artist để vẽ
+        # 5. KẾT THÚC
         return {
             "messages": [AIMessage(content=response.content)],
-            "next_step": "Secretary" # Đưa qua Thư ký để chốt hồ sơ
+            "next_step": "Secretary", # Chuyển qua Thư ký để chốt hoặc in ra
+            "error_log": []
         }
 
     except Exception as e:
-        error_msg = f"Lỗi Storyteller: {str(e)}"
+        error_msg = f"Lỗi sáng tác: {str(e)}"
         print(colored(f"❌ {error_msg}", "red"))
         return {
-            "messages": [AIMessage(content=f"⚠️ Sáng tác gián đoạn: {error_msg}")],
-            "error_log": errors + [error_msg],
-            "next_step": "Secretary"
+            "messages": [AIMessage(content=f"⚠️ Nhà văn bị 'bí từ' do lỗi kỹ thuật: {error_msg}")],
+            "next_step": "FINISH"
         }
-def storytelling_node(state):
-    print(colored("[🖋️ STORYTELLING] Đại văn hào đang nối mạch cảm xúc...", "magenta", attrs=["bold"]))
-    
-    messages = state.get("messages", [])
-    last_msg = messages[-1].content
-    
-    # 1. PHÂN TÍCH NHU CẦU: Viết mới hay Viết tiếp?
-    is_continue = "[CONTINUE]" in last_msg
-    
-    # 2. TRÍ NHỚ DÀI HẠN: Lấy nội dung chương trước đó (nếu là viết tiếp)
-    previous_content = ""
-    if is_continue and len(messages) > 1:
-        # Lấy nội dung mà AI vừa trả về ở lượt trước
-        previous_content = messages[-2].content 
-
-    prompt = (
-        "Bạn là Nhà văn Best-seller. "
-        "\nNHIỆM VỤ: Viết chương tiếp theo của câu chuyện."
-        "\n\nYÊU CẦU DUY TRÌ MẠCH VĂN:"
-        f"\n- ĐOẠN KẾT CHƯƠNG TRƯỚC: '{previous_content[-500:]}' (Hãy nối tiếp mạch này)."
-        "\n- KHÔNG lặp lại lời chào hay tóm tắt chương cũ."
-        "\n- Bắt đầu ngay vào hành động hoặc lời thoại tiếp theo."
-        "\n- Giữ nguyên văn phong, tên nhân vật và bối cảnh."
-    )
-
-    # 3. THỰC THI (Dùng Claude 3.5 Sonnet để có sự mượt mà nhất)
-    response = LLM_CLAUDE.invoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content=last_msg.replace("[CONTINUE]", ""))
-    ])
-
-    return {
-        "messages": [AIMessage(content=response.content)],
-        "next_step": "FINISH"
-    }
-
 # ============================================================================
 # NODE: R&D STRATEGY (Giám đốc Chiến lược - CSO)
 # ============================================================================
@@ -2538,31 +2553,29 @@ workflow.add_conditional_edges(
 
 # --- 4.5 Nhóm Agent phổ thông (Hồi quy về Supervisor hoặc kết thúc) ---
 # Lưu ý: Không bao gồm Coder, Tester, Hardware, Procurement, Investment, Researcher, Orchestrator
-general_agents = [
-    "Engineering", "IoT_Engineer", "Strategy_R_and_D", "Legal", 
-    "Marketing", "Artist", "Storyteller", "Publisher"
+# 1. Danh sách TOÀN BỘ nhân viên chuyên môn (Trừ Sếp và Lễ tân)
+specialists = [
+    "Coder", "Tester", "Hardware", "Engineering", "IoT_Engineer", 
+    "Procurement", "Investment", "Researcher", "Strategy_R_and_D", 
+    "Legal", "Marketing", "Artist", "Storyteller", "Orchestrator", "Publisher"
 ]
 
-for node in general_agents:
+# 2. Tạo đường về cho tất cả
+for node in specialists:
     workflow.add_conditional_edges(
         node,
-        lambda x: x.get("next_step", "Supervisor") if x.get("next_step") != "FINISH" else "Secretary",
+        lambda x: x.get("next_step", "Supervisor"), 
         {
-            "Supervisor": "Supervisor", 
-            "Secretary": "Secretary",
-            "Artist": "Artist",
-            "Procurement": "Procurement"
+            "Supervisor": "Supervisor",  # Mặc định: Xong việc thì báo cáo Sếp
+            "Tester": "Tester",          # Coder -> Tester (Đường tắt)
+            "Procurement": "Procurement",# Hardware -> Procurement (Đường tắt)
+            "Investment": "Investment",  # Procurement -> Investment (Đường tắt)
+            "Secretary": "Secretary",    # Chuyển thư ký chốt sổ
+            "FINISH": END                # Kết thúc
         }
     )
 
 # --- 4.6 Logic chuyên biệt (Pipeline & Đặc thù) ---
-
-# Luồng Researcher -> Orchestrator
-workflow.add_conditional_edges(
-    "Researcher",
-    lambda x: "Orchestrator" if x.get("task_type") == "dynamic" else "Secretary",
-    {"Orchestrator": "Orchestrator", "Secretary": "Secretary"}
-)
 
 # Luồng Orchestrator tỏa đi các nhánh
 workflow.add_conditional_edges(
@@ -2578,26 +2591,20 @@ workflow.add_conditional_edges(
     }
 )
 
-# Luồng Kỹ thuật: Coder -> Tester
-workflow.add_edge("Coder", "Tester")
-workflow.add_conditional_edges(
-    "Tester", 
-    lambda x: x.get("next_step", "Supervisor"), 
-    {"Coder": "Coder", "Supervisor": "Supervisor"}
-)
+# Tech Loop
+workflow.add_conditional_edges("Coder", lambda x: x["next_step"], {"Tester": "Tester", "FINISH": END})
+workflow.add_conditional_edges("Tester", lambda x: x["next_step"], {"Coder": "Coder", "Supervisor": "Supervisor"})
 
 # Luồng Vật lý & Tài chính cố định: Hardware -> Procurement -> Investment -> Supervisor/Secretary
 workflow.add_edge("Hardware", "Procurement")
 workflow.add_edge("Procurement", "Investment")
-workflow.add_conditional_edges(
-    "Investment",
-    lambda x: "Secretary" if x.get("next_step") == "FINISH" else "Supervisor",
-    {"Secretary": "Secretary", "Supervisor": "Supervisor"}
-)
+workflow.add_edge("Investment", "Supervisor")
 
 # --- 4.7 Kết thúc hệ thống ---
+workflow.add_edge("Researcher", "Supervisor")
+workflow.add_edge("Artist", "FINISH")
 workflow.add_edge("Secretary", END)
-
+workflow.add_edge("PreferenceLearner", END)
 # --- 4.8 BIÊN DỊCH HỆ THỐNG ---
 ai_app = workflow.compile() 
 app = ai_app
