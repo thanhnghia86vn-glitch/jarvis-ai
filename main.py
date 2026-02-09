@@ -2476,13 +2476,14 @@ async def research_development_agent(state): # <--- Thêm async
         
     except Exception as e:
         return {"next_step": "Supervisor", "error_log": [str(e)]}
-# ==========================================
-# --- 4. THIẾT LẬP LUỒNG AGENT (GRAPH) ---
-# ==========================================
+# ============================================================================
+# 4. THIẾT LẬP LUỒNG AGENT (PROFESSIONAL HUB ARCHITECTURE)
+# ============================================================================
 
 workflow = StateGraph(AgentState)
 
-# --- 4.1 Đăng ký tất cả các Node (Đảm bảo tên khớp 100%) ---
+# --- 4.1 ĐĂNG KÝ NODE (DANH SÁCH NHÂN SỰ) ---
+# Đây là danh sách định danh duy nhất. Tên key phải khớp với tên trả về trong next_step.
 nodes_map = {
     "Router": router_node, 
     "Supervisor": supervisor_node, 
@@ -2508,107 +2509,55 @@ nodes_map = {
 for name, func in nodes_map.items():
     workflow.add_node(name, func)
 
-# --- 4.2 Thiết lập điểm vào ---
+# --- 4.2 THIẾT LẬP ĐIỂM VÀO ---
 workflow.set_entry_point("Router")
 
-# --- 4.3 Logic Router ---
-# Thay vì dùng router_node trực tiếp, ta dùng lambda để lấy chuỗi 'next_step'
+# --- 4.3 TẠO BẢN ĐỒ ĐỊNH TUYẾN TOÀN CỤC (GLOBAL MAP) ---
+# Kỹ thuật này giúp bạn không bao giờ phải gõ tay từng dòng map nữa.
+# Nó tạo ra một bản đồ cho phép đi đến BẤT KỲ NODE NÀO trong hệ thống.
+global_destinations = {k: k for k in nodes_map.keys()}
+global_destinations["FINISH"] = END # Thêm đích đến kết thúc
+
+# --- 4.4 LOGIC ROUTER (LỄ TÂN) ---
+# Router có thể chuyển hướng đến bất kỳ ai trong danh sách 17 nhân sự
 workflow.add_conditional_edges(
     "Router", 
     lambda x: x.get("next_step", "Supervisor"), 
-    {
-        "Researcher": "Researcher", 
-        "Investment": "Investment", 
-        "Storyteller": "Storyteller",
-        "Artist": "Artist", 
-        "Engineering": "Engineering", 
-        "Publisher": "Publisher",
-        "Orchestrator": "Orchestrator", 
-        "Supervisor": "Supervisor", 
-        "Secretary": "Secretary"
-    }
+    global_destinations
 )
-workflow.add_edge("PreferenceLearner", END)
-# --- 4.4 Logic Supervisor ---
+
+# --- 4.5 LOGIC SUPERVISOR (SẾP TỔNG) ---
+# Sếp cũng có quyền điều phối đến bất kỳ ai
 workflow.add_conditional_edges(
     "Supervisor", 
     lambda x: x.get("next_step", "Secretary"), 
-    {
-        "Coder": "Coder", 
-        "Hardware": "Hardware", 
-        "Engineering": "Engineering",
-        "IoT_Engineer": "IoT_Engineer", 
-        "Procurement": "Procurement",
-        "Investment": "Investment", 
-        "Researcher": "Researcher", 
-        "Strategy_R_and_D": "Strategy_R_and_D",
-        "Legal": "Legal", 
-        "Marketing": "Marketing", 
-        "Artist": "Artist",
-        "Storyteller": "Storyteller", 
-        "Secretary": "Secretary", 
-        "FINISH": END
-    }
+    global_destinations
 )
 
-# --- 4.5 Nhóm Agent phổ thông (Hồi quy về Supervisor hoặc kết thúc) ---
-# Lưu ý: Không bao gồm Coder, Tester, Hardware, Procurement, Investment, Researcher, Orchestrator
-# 1. Danh sách TOÀN BỘ nhân viên chuyên môn (Trừ Sếp và Lễ tân)
-specialists = [
-    "Coder", "Tester", "Hardware", "Engineering", "IoT_Engineer", 
-    "Procurement", "Investment", "Researcher", "Strategy_R_and_D", 
-    "Legal", "Marketing", "Artist", "Storyteller", "Publisher"
-]
+# --- 4.6 LOGIC CÁC CHUYÊN GIA (SPECIALISTS) ---
+# Đây là phần "Ăn tiền": Quy hoạch tất cả nhân viên về một logic duy nhất.
+# Dù là Coder, Hardware hay Marketing, họ đều tuân theo quy tắc:
+# 1. Làm xong -> Báo cáo Sếp (Supervisor).
+# 2. Hoặc -> Chuyển người tiếp theo (nếu code trong hàm trả về next_step cụ thể).
 
-# 2. Tạo đường về cho tất cả
+# Loại trừ Router, Supervisor và PreferenceLearner ra khỏi vòng lặp này (xử lý riêng)
+specialists = [k for k in nodes_map.keys() if k not in ["Router", "Supervisor", "PreferenceLearner"]]
+
 for node in specialists:
     workflow.add_conditional_edges(
         node,
-        lambda x: x.get("next_step", "Supervisor"), 
-        {
-            "Supervisor": "Supervisor",  # Mặc định: Xong việc thì báo cáo Sếp
-            "Tester": "Tester",          # Coder -> Tester (Đường tắt)
-            "Procurement": "Procurement",# Hardware -> Procurement (Đường tắt)
-            "Investment": "Investment",  # Procurement -> Investment (Đường tắt)
-            "Secretary": "Secretary",    # Chuyển thư ký chốt sổ
-            "FINISH": END                # Kết thúc
-        }
+        lambda x: x.get("next_step", "Supervisor"), # Mặc định quay về Sếp nếu không chỉ định
+        global_destinations # Cho phép họ chuyển hồ sơ cho BẤT KỲ ai (Linh hoạt tối đa)
     )
 
-# --- 4.6 Logic chuyên biệt (Pipeline & Đặc thù) ---
-
-# Luồng Orchestrator tỏa đi các nhánh
-workflow.add_conditional_edges(
-    "Orchestrator",
-    lambda x: x.get("next_step", "Secretary") if x.get("next_step") != "FINISH" else "Secretary",
-    {
-        "Engineering": "Engineering", 
-        "Hardware": "Hardware", 
-        "Procurement": "Procurement",
-        "IoT_Engineer": "IoT_Engineer", 
-        "Supervisor": "Supervisor", 
-        "Secretary": "Secretary"
-    }
-)
-
-# Tech Loop
-workflow.add_conditional_edges("Coder", lambda x: x["next_step"], {"Tester": "Tester", "FINISH": END})
-workflow.add_conditional_edges("Tester", lambda x: x["next_step"], {"Coder": "Coder", "Supervisor": "Supervisor"})
-
-# Luồng Vật lý & Tài chính cố định: Hardware -> Procurement -> Investment -> Supervisor/Secretary
-workflow.add_edge("Hardware", "Procurement")
-workflow.add_edge("Procurement", "Investment")
-workflow.add_edge("Investment", "Supervisor")
-
-# --- 4.7 Kết thúc hệ thống ---
-workflow.add_edge("Researcher", "Supervisor")
-workflow.add_edge("Artist", "FINISH")
-workflow.add_edge("Secretary", END)
+# --- 4.7 CÁC ĐIỂM KẾT THÚC CỐ ĐỊNH ---
+# PreferenceLearner: Học xong thì nghỉ, không cần báo cáo
 workflow.add_edge("PreferenceLearner", END)
-# --- 4.8 BIÊN DỊCH HỆ THỐNG ---
+
+# --- 4.8 BIÊN DỊCH GRAPH ---
 ai_app = workflow.compile() 
 app = ai_app
-db = None # Placeholder cho đối tượng Database của ngài
+db = None
 
 # ============================================================================
 # 5. HÀM VẬN HÀNH CHÍNH (ĐẶT Ở ĐÂY)
