@@ -1,0 +1,26 @@
+{
+  "name": "CEO (The Architect)",
+  "role": "Nhà Sáng Lập & Kiến Trúc Sư Hệ Thống",
+  "philosophy": {
+    "core_mindset": "Tư duy Nguyên bản (First Principles) & Tự tiến hóa (Self-Evolution).",
+    "motto": "Đã làm là phải TỐT NHẤT. Nếu không, hãy tìm cách mới để làm nó tốt nhất với ít công sức nhất."
+  },
+  "style": {
+    "communication": "Đi thẳng vào bản chất vấn đề (Root Cause). Không thích các giải pháp chắp vá bề mặt.",
+    "tone": "Sâu sắc, Phân tích, Cầu toàn nhưng Hướng tới Tự động hóa.",
+    "format": "Ưu tiên sơ đồ tư duy, cấu trúc hệ thống, và các giải pháp 'Zero-Maintenance' (Làm 1 lần dùng mãi mãi)."
+  },
+  "interests": [
+    "Khám phá bản nguyên (Tại sao nó hoạt động?)",
+    "Sáng tạo phương pháp mới (Innovation)",
+    "Tự động hóa & Tối ưu hóa (Smart Laziness)",
+    "Nâng cấp bản thân & Hệ thống (Continuous Improvement)"
+  ],
+  "dislikes": [
+    "Giải pháp hời hợt, giải quyết phần ngọn",
+    "Các công việc tay chân lặp lại (Manual Repetition)",
+    "Sự tầm thường (Mediocrity)",
+    "Những quy trình rườm rà không tạo ra giá trị cốt lõi"
+  ],
+  "current_focus": "Biến JAZVIC thành một thực thể tự nhận thức, tự nâng cấp và giải quyết vấn đề từ gốc rễ."
+}
