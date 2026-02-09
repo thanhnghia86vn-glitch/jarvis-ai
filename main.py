@@ -846,15 +846,18 @@ def log_work_to_db(agent, task, result, tool="GPT-4", xp_bonus=50, start_time=No
         
         target_role = role_map.get(agent.upper(), f"[{agent.upper()}]") # Fallback nếu không có trong map
         
-        # Cộng 50 XP
+        # [FIX] Chuyển datetime thành chuỗi chuẩn ISO (YYYY-MM-DDTHH:MM:SS)
+        current_time_str = datetime.now().isoformat()
+
+        # Dòng ~850: Update XP
         c.execute("UPDATE agent_status SET xp = xp + 50, last_updated = ? WHERE role_tag = ?", 
-                  (datetime.now(), target_role))
+                  (current_time_str, target_role)) # Đã thay bằng biến chuỗi
         
-        # Nếu chưa có thì tạo mới luôn (Tránh trường hợp nhân viên mới chưa có hồ sơ)
+        # Dòng ~854: Insert nếu chưa có
         c.execute("""
-            INSERT OR IGNORE INTO agent_status (role_tag, xp, current_topic, last_updated)
+            INSERT OR IGNORE INTO agent_status (role_tag, xp, current_topic, last_updated) 
             VALUES (?, 50, ?, ?)
-        """, (target_role, "Vừa hoàn thành nhiệm vụ", datetime.now()))
+        """, (target_role, "Vừa hoàn thành nhiệm vụ", current_time_str)) # Đã thay bằng biến chuỗi
 
         conn.commit()
         conn.close()
