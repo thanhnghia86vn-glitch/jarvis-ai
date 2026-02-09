@@ -2557,7 +2557,7 @@ workflow.add_conditional_edges(
 specialists = [
     "Coder", "Tester", "Hardware", "Engineering", "IoT_Engineer", 
     "Procurement", "Investment", "Researcher", "Strategy_R_and_D", 
-    "Legal", "Marketing", "Artist", "Storyteller", "Orchestrator", "Publisher"
+    "Legal", "Marketing", "Artist", "Storyteller", "Publisher"
 ]
 
 # 2. Tạo đường về cho tất cả
