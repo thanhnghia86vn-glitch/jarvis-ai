@@ -148,7 +148,11 @@ class RegisterInfo(BaseModel):
     username: str
     email: str
     bank_name: str
-    account_number: str    
+    account_number: str  
+
+class CourseRequest(BaseModel):
+    subject: str      # Chủ đề lớn (VD: Học về ReactJS)
+    num_tasks: int = 10 # Số lượng task muốn chia nhỏ 
 
 # ==========================================
 # 1. DATABASE MANAGER
@@ -1647,6 +1651,73 @@ async def create_job(topic: str, type: str, price: float, x_api_key: str = Heade
         conn.commit()
     
     return {"msg": f"Đã tạo việc '{topic}' loại {type} với giá ${price}"}
+
+@app.post("/api/admin/auto_distribute_knowledge")
+async def auto_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(None)):
+    """
+    Dùng AI chính để phân rã một chủ đề lớn thành nhiều nhiệm vụ nhỏ cho Worker.
+    """
+    if x_api_key != ADMIN_SECRET: 
+        raise HTTPException(status_code=403)
+    
+    if not CHAT_MODEL:
+        return {"status": "error", "msg": "AI Core chưa sẵn sàng"}
+
+    print(colored(f"🧠 [SUPERVISOR] Đang phân rã chủ đề: {req.subject}", "magenta"))
+
+    # Prompt điều khiển AI chia nhỏ việc
+    prompt = f"""
+    Bạn là Giám đốc Đào tạo của J.A.R.V.I.S. 
+    CEO yêu cầu đào tạo hệ thống về chủ đề: "{req.subject}".
+    Hãy chia nhỏ chủ đề này thành {req.num_tasks} nhiệm vụ cụ thể cho các máy vệ tinh.
+    
+    Yêu cầu:
+    1. Mỗi nhiệm vụ phải độc lập và không trùng lặp.
+    2. Phân loại nhiệm vụ thành: RESEARCH (Nghiên cứu lý thuyết) hoặc PRACTICE_CODE (Viết code mẫu).
+    3. Định giá (Reward) từ $0.01 đến $0.1 tùy độ khó.
+    4. Trả về định dạng JSON list như mẫu sau:
+    [
+        {{"topic": "Tên task", "type": "RESEARCH", "reward": 0.02, "content": "Hướng dẫn chi tiết..."}},
+        ...
+    ]
+    Chỉ trả về JSON thuần túy, không có Markdown.
+    """
+
+    try:
+        # 1. Gọi AI để lấy danh sách Task
+        response = await CHAT_MODEL.ainvoke(prompt)
+        raw_json = response.content.replace("```json", "").replace("```", "").strip()
+        task_list = json.loads(raw_json)
+
+        # 2. Nạp hàng loạt vào Database
+        count = 0
+        with db_manager.get_connection() as conn:
+            for task in task_list:
+                try:
+                    conn.execute(
+                        text("""
+                            INSERT INTO learning_tasks (topic, task_type, reward, content, status) 
+                            VALUES (:t, :type, :r, :c, 'PENDING')
+                        """),
+                        {
+                            "t": f"[{req.subject.upper()}] {task['topic']}",
+                            "type": task['type'],
+                            "r": task['reward'],
+                            "c": task['content']
+                        }
+                    )
+                    count += 1
+                except: continue # Bỏ qua nếu trùng topic
+            conn.commit()
+
+        return {
+            "status": "success", 
+            "tasks_created": count, 
+            "msg": f"Đã phân rã thành công {count} nhiệm vụ về {req.subject}"
+        }
+
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
 # --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
 
 @app.post("/api/admin/seed_tasks")
