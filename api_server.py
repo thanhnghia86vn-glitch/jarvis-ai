@@ -1401,46 +1401,63 @@ async def receive_knowledge(data: LearningResult, x_api_key: str = Header(None))
 # --- API 1: PHÁT NHIỆM VỤ (Dành cho Worker xin việc) ---
 @app.post("/api/worker/get_task")
 async def worker_get_task(req: TaskRequest, x_api_key: str = Header(None)):
-    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
-    
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Lấy Tier của worker (Worker gửi lên trong req)
-    worker_tier = req.worker_tier 
-    
-    # LOGIC CHỌN VIỆC:
-    # - Tìm việc có độ khó (difficulty) <= Tier của máy
-    # - Ví dụ: Máy Tier 3 làm được việc 1, 2, 3. Máy Tier 1 chỉ làm được việc 1.
-    c.execute("""
-        SELECT id, topic, task_type, content 
-        FROM learning_tasks 
-        WHERE status='PENDING' 
-        AND difficulty <= ?  -- <--- MẤU CHỐT Ở ĐÂY
-        ORDER BY difficulty DESC -- Ưu tiên làm việc khó nhất có thể trước
-        LIMIT 1
-    """, (worker_tier,))
     try:
-        # 1. Tìm việc nào đang 'PENDING' (Chưa ai làm)
-        # Hoặc việc nào 'PROCESSING' nhưng quá 30 phút chưa xong (Máy kia bị sập) - Cơ chế Timeout
+        # --- [FIX QUAN TRỌNG] KIỂM TRA KEY ---
+        # 1. Tìm xem key này có trong bảng users không
+        c.execute("SELECT username FROM users WHERE api_key=?", (x_api_key,))
+        user = c.fetchone()
+
+        # 2. Nếu không phải Admin VÀ cũng không phải User đăng ký -> CHẶN
+        if x_api_key != ADMIN_SECRET and not user:
+             raise HTTPException(status_code=403, detail="Key không hợp lệ!")
+
+        # --- LOGIC GIAO VIỆC (GIỮ NGUYÊN) ---
+        worker_tier = 1 # Mặc định là 1 nếu không gửi lên
+        
+        # Tìm việc phù hợp
         c.execute("""
-            SELECT id, topic FROM learning_tasks 
+            SELECT id, topic, task_type, content 
+            FROM learning_tasks 
             WHERE status='PENDING' 
-            OR (status='PROCESSING' AND last_updated < datetime('now', '-30 minutes'))
+            AND difficulty <= ? 
+            ORDER BY difficulty DESC
             LIMIT 1
-        """)
+        """, (worker_tier,))
+        
         row = c.fetchone()
         
+        # Nếu không có việc PENDING, tìm việc bị treo (PROCESSING quá lâu)
+        if not row:
+            c.execute("""
+                SELECT id, topic, task_type, content FROM learning_tasks 
+                WHERE status='PROCESSING' 
+                AND last_updated < datetime('now', '-30 minutes')
+                LIMIT 1
+            """)
+            row = c.fetchone()
+        
         if row:
-            task_id, topic = row[0], row[1]
-            # 2. Đánh dấu "Xí phần" ngay lập tức
+            task_id, topic, task_type, content = row
+            # Đánh dấu đang làm
             c.execute("UPDATE learning_tasks SET status='PROCESSING', assigned_to=?, last_updated=CURRENT_TIMESTAMP WHERE id=?", (req.worker_id, task_id))
             conn.commit()
+            
             print(colored(f"Giao việc '{topic}' cho {req.worker_id}", "cyan"))
-            return {"task_id": task_id, "topic": topic}
+            
+            # Trả về đầy đủ thông tin để Worker làm việc
+            return {
+                "task_id": task_id, 
+                "topic": topic,
+                "type": task_type,      # <--- QUAN TRỌNG CHO WORKER MỚI
+                "content": content      # <--- QUAN TRỌNG CHO WORKER MỚI
+            }
         else:
             return {"task_id": None, "message": "Hết việc rồi, nghỉ ngơi đi!"}
+            
     finally:
-        conn.close()
+        conn.close() 
 async def generate_harder_task(previous_result):
     """
     Giáo sư ảo: Phân tích kết quả cũ -> Tạo bài tập mới khó hơn.
