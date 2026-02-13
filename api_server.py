@@ -149,26 +149,30 @@ class RegisterInfo(BaseModel):
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
+        # 1. Xử lý URL kết nối
         db_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
         
-        # --- [NÂNG CẤP] CẤU HÌNH POOL ---
+        # [QUAN TRỌNG] Lưu lại URL vào biến của class để init_db dùng sau này
+        self.db_url = db_url 
+
+        # 2. Cấu hình Engine (Tối ưu cho Render)
         if "sqlite" in db_url:
-            # SQLite cần check_same_thread=False để chạy đa luồng (Async)
+            # SQLite: Cần check_same_thread=False cho Async
             self.engine = create_engine(
                 db_url, 
                 connect_args={"check_same_thread": False},
-                pool_recycle=600 # Tái chế kết nối sau 1 giờ
+                pool_recycle=600 # 10 phút refresh kết nối 1 lần
             )
         else:
-            # PostgreSQL cần pool size để chịu tải cao
+            # PostgreSQL: Cần pool size và pre-ping
             self.engine = create_engine(
                 db_url,
                 pool_size=10, 
                 max_overflow=20,
-                pool_recycle=600,    # Hạ xuống 10 phút cho an toàn tuyệt đối
-                pool_pre_ping=True   # [QUAN TRỌNG] Tự động nối lại nếu bị Cloud ngắt
+                pool_recycle=600,  # 10 phút refresh (Tránh lỗi SSL EOF)
+                pool_pre_ping=True # Tự động nối lại nếu Cloud ngắt mạng
             )
     
     def get_connection(self):
@@ -176,9 +180,8 @@ class DatabaseManager:
     
     def init_db(self):
         try:
-            # --- [FIX QUAN TRỌNG] TỰ ĐỘNG CHỌN CÚ PHÁP ID ---
-            # Nếu là Postgres -> dùng SERIAL
-            # Nếu là SQLite -> dùng AUTOINCREMENT
+            # 3. Tự động chọn cú pháp SQL (Postgres vs SQLite)
+            # Bây giờ self.db_url đã tồn tại, code sẽ không báo lỗi nữa
             if "postgresql" in self.db_url:
                 pk_type = "SERIAL PRIMARY KEY"
                 text_type = "TEXT"
@@ -198,7 +201,7 @@ class DatabaseManager:
                     )
                 """))
                 
-                # Bảng Work Logs
+                # Bảng Work Logs (Nhật ký công việc & trả tiền)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS work_logs (
                         id {pk_type}, timestamp {text_type}, agent_name {text_type}, 
@@ -213,7 +216,7 @@ class DatabaseManager:
                 # Bảng Async Tasks
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS async_tasks (task_id {text_type} PRIMARY KEY, status {text_type}, result {text_type}, timestamp TIMESTAMP)"))
                 
-                # Bảng Learning Tasks (CHỖ BỊ LỖI CŨ)
+                # Bảng Learning Tasks (Quản lý việc làm cho Worker)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS learning_tasks (
                         id {pk_type},
@@ -243,6 +246,7 @@ class DatabaseManager:
                 conn.commit()
             print(colored("✅ FULL DB INITIALIZED (Compatible with Postgres & SQLite)", "green"))
         except Exception as e:
+            # In lỗi chi tiết hơn để dễ debug
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
 
 db_manager = DatabaseManager()
