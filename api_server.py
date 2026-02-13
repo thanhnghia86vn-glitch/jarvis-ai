@@ -154,29 +154,21 @@ class RegisterInfo(BaseModel):
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
-        # 1. Xử lý URL (Chuẩn hóa Postgres/SQLite)
-        db_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
-        if db_url.startswith("postgres://"):
-            db_url = db_url.replace("postgres://", "postgresql://", 1)
-        
-        # Lưu URL để dùng cho hàm init_db
-        self.db_url = db_url 
-
-        # 2. Cấu hình Engine (Tối ưu cho Cloud)
-        if "sqlite" in db_url:
-            self.engine = create_engine(
-                db_url, 
-                connect_args={"check_same_thread": False},
-                pool_recycle=600 
-            )
+        # 1. CẤU HÌNH DATABASE (FIX LỖI SPLIT BRAIN)
+        # Ép buộc dùng SQLite trên Disk để đồng bộ dữ liệu
+        if os.path.exists(RENDER_DISK_PATH):
+            os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
         else:
-            self.engine = create_engine(
-                db_url,
-                pool_size=10, 
-                max_overflow=20,
-                pool_recycle=600, 
-                pool_pre_ping=True
-            )
+            os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
+
+        self.db_url = os.environ["DATABASE_URL"]
+
+        # 2. Cấu hình Engine
+        self.engine = create_engine(
+            self.db_url, 
+            connect_args={"check_same_thread": False},
+            pool_recycle=600 
+        )
     
     def get_connection(self):
         return self.engine.connect()
@@ -184,24 +176,16 @@ class DatabaseManager:
     def init_db(self):
         """
         Hàm này chạy TỰ ĐỘNG mỗi khi Server khởi động.
-        Nó sẽ kiểm tra và tạo bất kỳ bảng nào còn thiếu.
+        Và tự động NÂNG CẤP (Migrate) nếu bảng cũ thiếu cột.
         """
         try:
-            # Xác định kiểu dữ liệu dựa trên loại DB
-            if "postgresql" in self.db_url:
-                pk_type = "SERIAL PRIMARY KEY"
-                text_type = "TEXT"
-            else:
-                pk_type = "INTEGER PRIMARY KEY AUTOINCREMENT"
-                text_type = "TEXT"
+            pk_type = "INTEGER PRIMARY KEY AUTOINCREMENT"
+            text_type = "TEXT"
 
             with self.get_connection() as conn:
-                # --- DANH SÁCH TẤT CẢ CÁC BẢNG ---
-                
-                # 1. Bảng Sản phẩm (Store)
+                # --- 1. TẠO CÁC BẢNG NẾU CHƯA CÓ (Cấu trúc cơ bản) ---
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS products (id {pk_type}, name {text_type}, price REAL)"))
                 
-                # 2. Bảng Trạng thái Agent
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS agent_status (
                         role_tag {text_type} PRIMARY KEY, xp INTEGER DEFAULT 0, 
@@ -209,7 +193,6 @@ class DatabaseManager:
                     )
                 """))
                 
-                # 3. Bảng Nhật ký & Tài chính (Work Logs)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS work_logs (
                         id {pk_type}, timestamp {text_type}, agent_name {text_type}, 
@@ -218,13 +201,11 @@ class DatabaseManager:
                     )
                 """))
                 
-                # 4. Bảng Dự án (Projects)
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS projects (id {text_type} PRIMARY KEY, name {text_type}, history {text_type}, timestamp TIMESTAMP)"))
                 
-                # 5. Bảng Async Tasks (Hàng đợi xử lý)
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS async_tasks (task_id {text_type} PRIMARY KEY, status {text_type}, result {text_type}, timestamp TIMESTAMP)"))
                 
-                # 6. Bảng Learning Tasks (Nhiệm vụ cho Worker)
+                # Bảng Learning Tasks (Bảng bị lỗi thiếu cột)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS learning_tasks (
                         id {pk_type},
@@ -232,13 +213,10 @@ class DatabaseManager:
                         status {text_type} DEFAULT 'PENDING',
                         assigned_to {text_type},
                         difficulty INTEGER DEFAULT 1,
-                        type {text_type} DEFAULT 'RESEARCH',
-                        content {text_type},
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
 
-                # 7. Bảng Users (QUAN TRỌNG: Ví tiền & Key)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS users (
                         username {text_type} PRIMARY KEY,
@@ -251,12 +229,26 @@ class DatabaseManager:
                     )
                 """))
                 
+                # --- 2. TỰ ĐỘNG NÂNG CẤP (AUTO-MIGRATE) ---
+                # Đoạn này sẽ cố gắng thêm cột mới. Nếu có rồi thì bỏ qua (Pass).
+                # Đây là cách sạch nhất để sửa lỗi "no such column" mà không mất dữ liệu cũ.
+                try:
+                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN task_type TEXT DEFAULT 'RESEARCH'"))
+                    print(colored("🛠️ [MIGRATION] Đã bổ sung cột 'task_type'", "yellow"))
+                except Exception: 
+                    pass # Cột đã tồn tại -> Bỏ qua
+                
+                try:
+                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN content TEXT DEFAULT ''"))
+                    print(colored("🛠️ [MIGRATION] Đã bổ sung cột 'content'", "yellow"))
+                except Exception:
+                    pass # Cột đã tồn tại -> Bỏ qua
+
                 conn.commit()
-            print(colored("✅ DATABASE INTEGRITY CHECK: PASSED (All tables exist)", "green"))
+            print(colored("✅ DATABASE READY (Schema Updated)", "green"))
             
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
-            # In ra traceback đầy đủ để dễ debug nếu vẫn lỗi
             import traceback
             traceback.print_exc()
 
@@ -1458,6 +1450,7 @@ async def worker_get_task(req: TaskRequest, x_api_key: str = Header(None)):
             
     finally:
         conn.close() 
+
 async def generate_harder_task(previous_result):
     """
     Giáo sư ảo: Phân tích kết quả cũ -> Tạo bài tập mới khó hơn.
