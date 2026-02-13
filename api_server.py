@@ -149,39 +149,40 @@ class RegisterInfo(BaseModel):
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
-        # 1. Xử lý URL kết nối
+        # 1. Xử lý URL (Chuẩn hóa Postgres/SQLite)
         db_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
         
-        # [QUAN TRỌNG] Lưu lại URL vào biến của class để init_db dùng sau này
+        # Lưu URL để dùng cho hàm init_db
         self.db_url = db_url 
 
-        # 2. Cấu hình Engine (Tối ưu cho Render)
+        # 2. Cấu hình Engine (Tối ưu cho Cloud)
         if "sqlite" in db_url:
-            # SQLite: Cần check_same_thread=False cho Async
             self.engine = create_engine(
                 db_url, 
                 connect_args={"check_same_thread": False},
-                pool_recycle=600 # 10 phút refresh kết nối 1 lần
+                pool_recycle=600 
             )
         else:
-            # PostgreSQL: Cần pool size và pre-ping
             self.engine = create_engine(
                 db_url,
                 pool_size=10, 
                 max_overflow=20,
-                pool_recycle=600,  # 10 phút refresh (Tránh lỗi SSL EOF)
-                pool_pre_ping=True # Tự động nối lại nếu Cloud ngắt mạng
+                pool_recycle=600, 
+                pool_pre_ping=True
             )
     
     def get_connection(self):
         return self.engine.connect()
     
     def init_db(self):
+        """
+        Hàm này chạy TỰ ĐỘNG mỗi khi Server khởi động.
+        Nó sẽ kiểm tra và tạo bất kỳ bảng nào còn thiếu.
+        """
         try:
-            # 3. Tự động chọn cú pháp SQL (Postgres vs SQLite)
-            # Bây giờ self.db_url đã tồn tại, code sẽ không báo lỗi nữa
+            # Xác định kiểu dữ liệu dựa trên loại DB
             if "postgresql" in self.db_url:
                 pk_type = "SERIAL PRIMARY KEY"
                 text_type = "TEXT"
@@ -190,10 +191,12 @@ class DatabaseManager:
                 text_type = "TEXT"
 
             with self.get_connection() as conn:
-                # Bảng Products
+                # --- DANH SÁCH TẤT CẢ CÁC BẢNG ---
+                
+                # 1. Bảng Sản phẩm (Store)
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS products (id {pk_type}, name {text_type}, price REAL)"))
                 
-                # Bảng Agent Status
+                # 2. Bảng Trạng thái Agent
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS agent_status (
                         role_tag {text_type} PRIMARY KEY, xp INTEGER DEFAULT 0, 
@@ -201,7 +204,7 @@ class DatabaseManager:
                     )
                 """))
                 
-                # Bảng Work Logs (Nhật ký công việc & trả tiền)
+                # 3. Bảng Nhật ký & Tài chính (Work Logs)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS work_logs (
                         id {pk_type}, timestamp {text_type}, agent_name {text_type}, 
@@ -210,13 +213,13 @@ class DatabaseManager:
                     )
                 """))
                 
-                # Bảng Projects
+                # 4. Bảng Dự án (Projects)
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS projects (id {text_type} PRIMARY KEY, name {text_type}, history {text_type}, timestamp TIMESTAMP)"))
                 
-                # Bảng Async Tasks
+                # 5. Bảng Async Tasks (Hàng đợi xử lý)
                 conn.execute(text(f"CREATE TABLE IF NOT EXISTS async_tasks (task_id {text_type} PRIMARY KEY, status {text_type}, result {text_type}, timestamp TIMESTAMP)"))
                 
-                # Bảng Learning Tasks (Quản lý việc làm cho Worker)
+                # 6. Bảng Learning Tasks (Nhiệm vụ cho Worker)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS learning_tasks (
                         id {pk_type},
@@ -230,7 +233,7 @@ class DatabaseManager:
                     )
                 """))
 
-                # Bảng Users (Ví tiền & Ngân hàng)
+                # 7. Bảng Users (QUAN TRỌNG: Ví tiền & Key)
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS users (
                         username {text_type} PRIMARY KEY,
@@ -244,13 +247,15 @@ class DatabaseManager:
                 """))
                 
                 conn.commit()
-            print(colored("✅ FULL DB INITIALIZED (Compatible with Postgres & SQLite)", "green"))
+            print(colored("✅ DATABASE INTEGRITY CHECK: PASSED (All tables exist)", "green"))
+            
         except Exception as e:
-            # In lỗi chi tiết hơn để dễ debug
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
+            # In ra traceback đầy đủ để dễ debug nếu vẫn lỗi
+            import traceback
+            traceback.print_exc()
 
 db_manager = DatabaseManager()
-
 # ==========================================
 # 2. WEBSOCKET MANAGER
 # ==========================================
