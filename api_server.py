@@ -20,7 +20,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from termcolor import colored
 from gtts import gTTS
-from langchain_openai import ChatOpenAI
+# from langchain_openai import ChatOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from langchain_google_genai import ChatGoogleGenerativeAI
 # --- CÀI ĐẶT THƯ VIỆN: pip install fastapi uvicorn python-multipart jinja2 aiofiles ---
@@ -54,7 +54,7 @@ UPLOAD_DIR = os.path.join(BASE_DATA_DIR, "uploads")
 PROJECTS_DIR = os.path.join(BASE_DATA_DIR, "projects")
 DB_PATH = os.path.join(BASE_DATA_DIR, "ai_corp_projects.db")
 VECTOR_DB_PATH = os.path.join(BASE_DATA_DIR, "db_knowledge") # Folder chứa vector database
-
+TTS_CACHE_DIR = os.path.join(BASE_DATA_DIR, "tts_cache")
 # 3. Biến môi trường Database (Cập nhật lại cho SQLite nếu dùng Disk)
 # Nếu không dùng PostgreSQL mà dùng SQLite trên Disk thì set lại url
 if not os.environ.get("DATABASE_URL") and os.path.exists(RENDER_DISK_PATH):
@@ -91,13 +91,13 @@ try:
     CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=os.environ.get("GOOGLE_API_KEY"))
 except:
     CHAT_MODEL = None
-
+# Import Memory
 try:
     from memory_core import recall_relevant_memories, extract_and_save_memory
     MEMORY_AVAILABLE = True
 except ImportError:
     pass
-
+# Import Voice
 try:
     from voice_engine import client
     VOICE_AVAILABLE = True
@@ -124,16 +124,45 @@ class Query(BaseModel):
 
 class BuyRequest(BaseModel):
     product_id: int
+
+class LearningResult(BaseModel):
+    source: str
+    content: str
+    worker_id: str
+
+class TaskRequest(BaseModel):
+    worker_id: str
+
+class TaskResult(BaseModel):
+    task_id: int
+    worker_id: str
+    result_content: str
+
 # ==========================================
 # 1. DATABASE MANAGER
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
-        # Fix: Xử lý chuỗi kết nối cho SQLAlchemy
         db_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
-        self.engine = create_engine(db_url)
+        
+        # --- [NÂNG CẤP] CẤU HÌNH POOL ---
+        if "sqlite" in db_url:
+            # SQLite cần check_same_thread=False để chạy đa luồng (Async)
+            self.engine = create_engine(
+                db_url, 
+                connect_args={"check_same_thread": False},
+                pool_recycle=3600 # Tái chế kết nối sau 1 giờ
+            )
+        else:
+            # PostgreSQL cần pool size để chịu tải cao
+            self.engine = create_engine(
+                db_url,
+                pool_size=10, 
+                max_overflow=20,
+                pool_recycle=1800
+            )
     
     def get_connection(self):
         return self.engine.connect()
@@ -157,7 +186,19 @@ class DatabaseManager:
                 """))
                 conn.execute(text("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp TIMESTAMP)"))
                 conn.execute(text("CREATE TABLE IF NOT EXISTS async_tasks (task_id TEXT PRIMARY KEY, status TEXT, result TEXT, timestamp TIMESTAMP)"))
+                # Bảng cho Task Queue (Distributed Learning)
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS learning_tasks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        topic TEXT UNIQUE,
+                        status TEXT DEFAULT 'PENDING',
+                        assigned_to TEXT,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
                 conn.commit()
+
+
             print(colored("✅ FULL DB INITIALIZED", "green"))
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
@@ -377,68 +418,93 @@ async def full_project_pipeline(user_request: str, thread_id: str):
 # ==========================================
 # 4. APP & ROUTES
 # ==========================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # --- GIAI ĐOẠN 1: KHỞI ĐỘNG (STARTUP) ---
-    print(colored("\n🚀 [SYSTEM] Hệ thống đang khởi động...", "cyan", attrs=["bold"]))
-    
-    # 1. Tạo các thư mục cần thiết (Chỉ làm 1 lần, chính xác)
+# --- CÁC HÀM HỖ TRỢ KHỞI ĐỘNG (HELPER FUNCTIONS) ---
+def setup_directories():
+    """Tạo cấu trúc thư mục chuẩn"""
     base_path = os.path.abspath(os.path.dirname(__file__))
     required_dirs = [
-        UPLOAD_DIR,
-        PROJECTS_DIR,
+        UPLOAD_DIR, PROJECTS_DIR, TTS_CACHE_DIR,
         os.path.join(base_path, "static"),
         os.path.join(base_path, "templates")
     ]
-    
     for d in required_dirs:
-        if not os.path.exists(d): 
-            os.makedirs(d, exist_ok=True)
-            print(colored(f"📁 Đã tạo thư mục: {d}", "green"))
+        os.makedirs(d, exist_ok=True)
+    logger.info(f"📂 System Directories: VERIFIED")
 
-    # 2. Khởi tạo Database
+def cleanup_temp_files():
+    """Dọn dẹp file rác cũ hơn 24h"""
+    try:
+        now = time.time()
+        count = 0
+        for folder in [UPLOAD_DIR, TTS_CACHE_DIR]:
+            if os.path.exists(folder):
+                for f in os.listdir(folder):
+                    f_path = os.path.join(folder, f)
+                    # Xóa file cũ > 24h
+                    if os.path.isfile(f_path) and os.stat(f_path).st_mtime < now - 86400:
+                        os.remove(f_path)
+                        count += 1
+        logger.info(f"🧹 Cleanup: Deleted {count} temporary files.")
+    except Exception as e:
+        logger.warning(f"⚠️ Cleanup Warning: {e}")
+
+# --- HÀM LIFESPAN CHÍNH (ĐÃ TỐI ƯU) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ==============================
+    # 🟢 STARTUP SEQUENCE
+    # ==============================
+    print(colored("\n🚀 [SYSTEM] J.A.R.V.I.S KHOI DONG...", "cyan", attrs=["bold"]))
+    
+    # 1. Hạ tầng (Files & DB)
+    setup_directories()
+    cleanup_temp_files()
+    
     try:
         db_manager.init_db()
+        logger.info("✅ Database: CONNECTED")
     except Exception as e:
-        print(colored(f"❌ Lỗi khởi tạo DB: {e}", "red"))
+        logger.critical(f"❌ Database Failed: {e}")
 
-    # 3. Kích hoạt Scheduler (Báo cáo sáng)
+    # 2. Lên lịch tác vụ (Scheduler)
     scheduler = AsyncIOScheduler()
-    if 'morning_briefing_job' in globals() and callable(morning_briefing_job):
+    if 'morning_briefing_job' in globals():
         scheduler.add_job(morning_briefing_job, 'cron', hour=7, minute=0)
-        print(colored("⏰ Đã lên lịch Báo cáo sáng (7:00 AM).", "blue"))
     scheduler.start()
-    
-    # 4. Kích hoạt AI Tự học (Lưu task để quản lý)
+    logger.info("⏰ Scheduler: ACTIVE")
+
+    # 3. Kích hoạt AI nền (Background AI)
     learning_task = None
     if AI_AVAILABLE:
-        print(colored("🧠 [AI] Kích hoạt Vòng lặp Tự học (Adaptive Learning)...", "magenta"))
-        # Tạo task chạy nền
+        logger.info("🧠 AI Core: ONLINE - Starting Self-Learning Loop...")
         learning_task = asyncio.create_task(auto_learning_cycle())
     else:
-        print(colored("⚠️ AI Offline: Chế độ học tạm dừng.", "yellow"))
-    
-    # --- ĐIỂM CHUYỂN GIAO: SERVER BẮT ĐẦU CHẠY TẠI ĐÂY ---
+        logger.warning("⚠️ AI Core: OFFLINE (Running in safe mode)")
+
+    # ---> SERVER IS RUNNING HERE <---
     yield 
     
-    # --- GIAI ĐOẠN 2: TẮT MÁY (SHUTDOWN) ---
-    print(colored("\n💤 [SYSTEM] Đang tắt hệ thống...", "yellow", attrs=["bold"]))
+    # ==============================
+    # 🔴 SHUTDOWN SEQUENCE
+    # ==============================
+    print(colored("\n💤 [SYSTEM] J.A.R.V.I.S DANG NGHI...", "yellow", attrs=["bold"]))
     
-    # 1. Tắt Scheduler
+    # 1. Dừng Scheduler
     if scheduler.running:
         scheduler.shutdown()
-        print("🛑 Đã dừng đồng hồ báo cáo.")
     
-    # 2. Dừng AI Tự học (Quan trọng để không bị kẹt process)
+    # 2. Dừng AI an toàn (Graceful Shutdown)
     if learning_task:
-        print("🛑 Đang yêu cầu AI dừng học...")
-        learning_task.cancel() # Gửi tín hiệu hủy
+        learning_task.cancel()
         try:
-            await learning_task # Đợi nó dừng hẳn
-        except asyncio.CancelledError:
-            print(colored("✅ AI đã dừng học an toàn.", "green"))
+            # Đợi tối đa 5s để AI lưu dữ liệu dở dang rồi mới tắt
+            await asyncio.wait_for(learning_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            logger.info("✅ AI Background Task stopped safely.")
             
-    print(colored("👋 J.A.R.V.I.S Offline. Hẹn gặp lại CEO!", "red"))
+    logger.info("👋 System Shutdown Complete.")
+
+
 
 # --- KHỞI TẠO APP VỚI LIFESPAN ---
 app = FastAPI(
@@ -1227,13 +1293,106 @@ async def api_learn(request: LearnRequest, x_api_key: str = Header(None)):
     res = learn_knowledge(request.text)
     return {"status": "success", "message": res}
 
+@app.post("/api/worker/submit_knowledge")
+async def receive_knowledge(data: LearningResult, x_api_key: str = Header(None)):
+    """
+    API dành cho các máy vệ tinh nộp kiến thức đã học được về kho trung tâm.
+    """
+    if x_api_key != ADMIN_SECRET:
+        raise HTTPException(403, "Sai mật mã kết nối!")
+    
+    # Lưu vào bộ nhớ dài hạn
+    logger.info(f"📥 Nhận kiến thức từ Worker [{data.worker_id}]: {data.source}")
+    
+    if AI_AVAILABLE:
+        # Chạy ngầm việc embedding vào ChromaDB
+        await run_in_threadpool(lambda: learn_knowledge(data.content))
+        
+    return {"status": "accepted", "msg": "Đã nạp vào bộ não trung tâm"}
 
+# --- API 1: PHÁT NHIỆM VỤ (Dành cho Worker xin việc) ---
+@app.post("/api/worker/get_task")
+async def worker_get_task(req: TaskRequest, x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        # 1. Tìm việc nào đang 'PENDING' (Chưa ai làm)
+        # Hoặc việc nào 'PROCESSING' nhưng quá 30 phút chưa xong (Máy kia bị sập) - Cơ chế Timeout
+        c.execute("""
+            SELECT id, topic FROM learning_tasks 
+            WHERE status='PENDING' 
+            OR (status='PROCESSING' AND last_updated < datetime('now', '-30 minutes'))
+            LIMIT 1
+        """)
+        row = c.fetchone()
+        
+        if row:
+            task_id, topic = row[0], row[1]
+            # 2. Đánh dấu "Xí phần" ngay lập tức
+            c.execute("UPDATE learning_tasks SET status='PROCESSING', assigned_to=?, last_updated=CURRENT_TIMESTAMP WHERE id=?", (req.worker_id, task_id))
+            conn.commit()
+            print(colored(f"Giao việc '{topic}' cho {req.worker_id}", "cyan"))
+            return {"task_id": task_id, "topic": topic}
+        else:
+            return {"task_id": None, "message": "Hết việc rồi, nghỉ ngơi đi!"}
+    finally:
+        conn.close()
+
+# --- API 2: NHẬN KẾT QUẢ (Dành cho Worker nộp bài) ---
+@app.post("/api/worker/submit_task")
+async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # 1. Cập nhật trạng thái DONE
+        conn.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
+        
+        # 2. Lưu kiến thức vào Kho não bộ (Bảng work_logs cũ)
+        timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
+        conn.execute("""
+            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used)
+            VALUES (?, ?, ?, ?, ?)
+        """, (timestamp, f"WORKER_{res.worker_id}", f"Nghiên cứu: {res.task_id}", res.result_content, "DISTRIBUTED_LEARNING"))
+        
+        conn.commit()
+        print(colored(f"✅ Nhận báo cáo từ {res.worker_id}", "green"))
+        
+        # 3. Kích hoạt AI Server học ngầm (Nếu cần)
+        if AI_AVAILABLE:
+            from main import learn_knowledge
+            await run_in_threadpool(lambda: learn_knowledge(res.result_content))
+            
+        return {"status": "success"}
+    finally:
+        conn.close()
+
+# --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
+@app.post("/api/admin/seed_tasks")
+async def seed_learning_tasks(topics: List[str], x_api_key: str = Header(None)):
+    """Admin nạp một list chủ đề cần học vào hàng đợi"""
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    conn = sqlite3.connect(DB_PATH)
+    count = 0
+    for t in topics:
+        try:
+            conn.execute("INSERT INTO learning_tasks (topic) VALUES (?)", (t,))
+            count += 1
+        except sqlite3.IntegrityError: pass # Bỏ qua nếu trùng chủ đề
+    conn.commit()
+    conn.close()
+    return {"msg": f"Đã thêm {count} nhiệm vụ mới."}
 # --- API ĐỒNG BỘ DỮ LIỆU ---
 @app.get("/api/sync/download_db")
 async def download_database():
     if os.path.exists(DB_PATH):
         return FileResponse(path=DB_PATH, filename="ai_corp_data.db", media_type='application/octet-stream')
     return {"error": "Database not found"}
+
+
+os.makedirs(TTS_CACHE_DIR, exist_ok=True)
 
 @app.post("/api/speak")
 async def api_speak(request: SpeakRequest):
@@ -1246,6 +1405,16 @@ async def api_speak(request: SpeakRequest):
         # Cắt ngắn 500 ký tự để đọc cho nhanh
         safe_text = request.text[:500] 
 
+        # --- [NÂNG CẤP] KIỂM TRA CACHE ---
+        import hashlib
+        # Tạo tên file dựa trên nội dung văn bản (MD5 hash)
+        file_hash = hashlib.md5(safe_text.encode()).hexdigest()
+        cache_path = os.path.join(TTS_CACHE_DIR, f"{file_hash}.mp3")
+        
+        # Nếu đã có file này rồi -> Trả về ngay
+        if os.path.exists(cache_path):
+            print(colored(f"🔊 [TTS CACHE HIT]: {safe_text[:20]}...", "green"))
+            return FileResponse(cache_path, media_type="audio/mpeg")
         # 2. Dùng gTTS (Miễn phí) thay vì client.audio.speech.create (Tốn tiền)
         # Tận dụng lại logic của thư viện gTTS đã import
         def _generate_free_audio():
@@ -1258,7 +1427,10 @@ async def api_speak(request: SpeakRequest):
 
         # Chạy trong luồng riêng để không treo server
         audio_content = await run_in_threadpool(_generate_free_audio)
-        
+        # Sau khi tạo xong buffer, hãy lưu nó xuống cache_path trước khi trả về
+        with open(cache_path, "wb") as f:
+            f.write(audio_content)
+
         return Response(content=audio_content, media_type="audio/mpeg")
 
     except Exception as e:
