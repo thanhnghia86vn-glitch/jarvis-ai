@@ -159,7 +159,7 @@ class DatabaseManager:
             self.engine = create_engine(
                 db_url, 
                 connect_args={"check_same_thread": False},
-                pool_recycle=3600 # Tái chế kết nối sau 1 giờ
+                pool_recycle=600 # Tái chế kết nối sau 1 giờ
             )
         else:
             # PostgreSQL cần pool size để chịu tải cao
@@ -167,7 +167,8 @@ class DatabaseManager:
                 db_url,
                 pool_size=10, 
                 max_overflow=20,
-                pool_recycle=1800
+                pool_recycle=600,    # Hạ xuống 10 phút cho an toàn tuyệt đối
+                pool_pre_ping=True   # [QUAN TRỌNG] Tự động nối lại nếu bị Cloud ngắt
             )
     
     def get_connection(self):
@@ -175,51 +176,74 @@ class DatabaseManager:
     
     def init_db(self):
         try:
+            # --- [FIX QUAN TRỌNG] TỰ ĐỘNG CHỌN CÚ PHÁP ID ---
+            # Nếu là Postgres -> dùng SERIAL
+            # Nếu là SQLite -> dùng AUTOINCREMENT
+            if "postgresql" in self.db_url:
+                pk_type = "SERIAL PRIMARY KEY"
+                text_type = "TEXT"
+            else:
+                pk_type = "INTEGER PRIMARY KEY AUTOINCREMENT"
+                text_type = "TEXT"
+
             with self.get_connection() as conn:
-                conn.execute(text("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price REAL)"))
-                conn.execute(text("""
+                # Bảng Products
+                conn.execute(text(f"CREATE TABLE IF NOT EXISTS products (id {pk_type}, name {text_type}, price REAL)"))
+                
+                # Bảng Agent Status
+                conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS agent_status (
-                        role_tag TEXT PRIMARY KEY, xp INTEGER DEFAULT 0, 
-                        current_topic TEXT, last_updated TIMESTAMP
+                        role_tag {text_type} PRIMARY KEY, xp INTEGER DEFAULT 0, 
+                        current_topic {text_type}, last_updated TIMESTAMP
                     )
                 """))
-                conn.execute(text("""
+                
+                # Bảng Work Logs
+                conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS work_logs (
-                        id INTEGER PRIMARY KEY, timestamp TEXT, agent_name TEXT, 
-                        task_content TEXT, result_summary TEXT, tool_used TEXT, 
+                        id {pk_type}, timestamp {text_type}, agent_name {text_type}, 
+                        task_content {text_type}, result_summary {text_type}, tool_used {text_type}, 
                         cost REAL, duration REAL
                     )
                 """))
-                conn.execute(text("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, history TEXT, timestamp TIMESTAMP)"))
-                conn.execute(text("CREATE TABLE IF NOT EXISTS async_tasks (task_id TEXT PRIMARY KEY, status TEXT, result TEXT, timestamp TIMESTAMP)"))
-                # Bảng cho Task Queue (Distributed Learning)
-                conn.execute(text("""
+                
+                # Bảng Projects
+                conn.execute(text(f"CREATE TABLE IF NOT EXISTS projects (id {text_type} PRIMARY KEY, name {text_type}, history {text_type}, timestamp TIMESTAMP)"))
+                
+                # Bảng Async Tasks
+                conn.execute(text(f"CREATE TABLE IF NOT EXISTS async_tasks (task_id {text_type} PRIMARY KEY, status {text_type}, result {text_type}, timestamp TIMESTAMP)"))
+                
+                # Bảng Learning Tasks (CHỖ BỊ LỖI CŨ)
+                conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS learning_tasks (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        topic TEXT UNIQUE,
-                        status TEXT DEFAULT 'PENDING',
-                        assigned_to TEXT,
+                        id {pk_type},
+                        topic {text_type} UNIQUE,
+                        status {text_type} DEFAULT 'PENDING',
+                        assigned_to {text_type},
+                        difficulty INTEGER DEFAULT 1,
+                        type {text_type} DEFAULT 'RESEARCH',
+                        content {text_type},
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
-                conn.execute(text("""
+
+                # Bảng Users (Ví tiền & Ngân hàng)
+                conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS users (
-                        username TEXT PRIMARY KEY,
-                        api_key TEXT UNIQUE,
-                        email TEXT,
-                        bank_info TEXT,  -- Lưu "VCB - 102938..."
+                        username {text_type} PRIMARY KEY,
+                        api_key {text_type} UNIQUE,
+                        email {text_type},
+                        bank_info {text_type},
                         balance REAL DEFAULT 0.0,
                         reputation INTEGER DEFAULT 100,
                         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
+                
                 conn.commit()
-
-
-            print(colored("✅ FULL DB INITIALIZED", "green"))
+            print(colored("✅ FULL DB INITIALIZED (Compatible with Postgres & SQLite)", "green"))
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
-
 
 db_manager = DatabaseManager()
 
