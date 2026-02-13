@@ -138,6 +138,12 @@ class TaskResult(BaseModel):
     worker_id: str
     result_content: str
 
+class RegisterInfo(BaseModel):
+    username: str
+    email: str
+    bank_name: str
+    account_number: str    
+
 # ==========================================
 # 1. DATABASE MANAGER
 # ==========================================
@@ -194,6 +200,17 @@ class DatabaseManager:
                         status TEXT DEFAULT 'PENDING',
                         assigned_to TEXT,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        username TEXT PRIMARY KEY,
+                        api_key TEXT UNIQUE,
+                        email TEXT,
+                        bank_info TEXT,  -- Lưu "VCB - 102938..."
+                        balance REAL DEFAULT 0.0,
+                        reputation INTEGER DEFAULT 100,
+                        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
                 conn.commit()
@@ -917,7 +934,40 @@ async def get_task_status(task_id: str):
             return {"status": "NOT_FOUND", "result": None}
     except Exception as e:
         return {"status": "ERROR", "result": str(e)}
+# --- API ĐĂNG KÝ ---
+@app.post("/api/economy/register_miner")
+async def register_miner_endpoint(info: RegisterInfo):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # 1. Kiểm tra user trùng
+        cursor = conn.execute("SELECT 1 FROM users WHERE username=?", (info.username,))
+        if cursor.fetchone():
+            return JSONResponse(status_code=400, content={"status": "error", "msg": "Tên đăng nhập đã tồn tại!"})
 
+        # 2. Sinh Key mới
+        new_key = f"sk-{uuid.uuid4().hex}"
+        
+        # 3. Gộp thông tin ngân hàng
+        bank_full = f"{info.bank_name} - {info.account_number}"
+
+        # 4. Lưu vào DB
+        conn.execute(
+            "INSERT INTO users (username, api_key, email, bank_info) VALUES (?, ?, ?, ?)",
+            (info.username, new_key, info.email, bank_full)
+        )
+        conn.commit()
+        
+        print(colored(f"🆕 Thợ đào mới: {info.username} ({bank_full})", "cyan"))
+        
+        return {
+            "status": "success",
+            "api_key": new_key,
+            "msg": "Đăng ký thành công! Key đã được lưu."
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "msg": str(e)})
+    finally:
+        conn.close()
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
@@ -1317,6 +1367,20 @@ async def worker_get_task(req: TaskRequest, x_api_key: str = Header(None)):
     
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Lấy Tier của worker (Worker gửi lên trong req)
+    worker_tier = req.worker_tier 
+    
+    # LOGIC CHỌN VIỆC:
+    # - Tìm việc có độ khó (difficulty) <= Tier của máy
+    # - Ví dụ: Máy Tier 3 làm được việc 1, 2, 3. Máy Tier 1 chỉ làm được việc 1.
+    c.execute("""
+        SELECT id, topic, task_type, content 
+        FROM learning_tasks 
+        WHERE status='PENDING' 
+        AND difficulty <= ?  -- <--- MẤU CHỐT Ở ĐÂY
+        ORDER BY difficulty DESC -- Ưu tiên làm việc khó nhất có thể trước
+        LIMIT 1
+    """, (worker_tier,))
     try:
         # 1. Tìm việc nào đang 'PENDING' (Chưa ai làm)
         # Hoặc việc nào 'PROCESSING' nhưng quá 30 phút chưa xong (Máy kia bị sập) - Cơ chế Timeout
@@ -1339,33 +1403,143 @@ async def worker_get_task(req: TaskRequest, x_api_key: str = Header(None)):
             return {"task_id": None, "message": "Hết việc rồi, nghỉ ngơi đi!"}
     finally:
         conn.close()
+async def generate_harder_task(previous_result):
+    """
+    Giáo sư ảo: Phân tích kết quả cũ -> Tạo bài tập mới khó hơn.
+    """
+    if not CHAT_MODEL: return
 
+    print(colored("🤔 [SUPERVISOR] Đang suy nghĩ bài tập nâng cao...", "cyan"))
+    
+    prompt = f"""
+    Hệ thống vệ tinh vừa hoàn thành xuất sắc nhiệm vụ này:
+    ---
+    {previous_result}
+    ---
+    
+    Dựa trên thành công này, hãy suy nghĩ ra 1 NHIỆM VỤ TIẾP THEO (NEXT STEP) có độ khó cao hơn, phức tạp hơn để nâng cao trình độ.
+    
+    Yêu cầu:
+    1. Nhiệm vụ mới phải liên quan đến nhiệm vụ cũ nhưng khó hơn (Level Up).
+    2. Trả về định dạng JSON thuần túy (không Markdown).
+    
+    JSON Mẫu:
+    {{
+        "topic": "Tên nhiệm vụ mới",
+        "type": "PRACTICE_CODE",
+        "difficulty": 2,
+        "content": "Code python mẫu hoặc yêu cầu cụ thể..."
+    }}
+    """
+    
+    try:
+        # Gọi AI tư duy
+        ai_res = await CHAT_MODEL.ainvoke(prompt)
+        
+        # Làm sạch JSON (đôi khi AI thêm ```json ... ```)
+        clean_json = ai_res.content.replace("```json", "").replace("```", "").strip()
+        new_task = json.loads(clean_json)
+        
+        # Lưu vào DB để chờ Worker rảnh thì làm
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            "INSERT INTO learning_tasks (topic, status, assigned_to, last_updated) VALUES (?, 'PENDING', NULL, CURRENT_TIMESTAMP)",
+            (f"[LEVEL UP] {new_task['topic']}",)
+        )
+        conn.commit()
+        conn.close()
+        
+        print(colored(f"📈 [LEVEL UP] Đã sinh nhiệm vụ mới: {new_task['topic']}", "magenta"))
+    except Exception as e:
+        print(f"⚠️ Lỗi sinh bài tập khó: {e}")
 # --- API 2: NHẬN KẾT QUẢ (Dành cho Worker nộp bài) ---
 @app.post("/api/worker/submit_task")
 async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
-    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
-    
+    """
+    API nhận kết quả từ Worker.
+    Nâng cấp:
+    1. Trả thưởng (Economy): Cộng tiền vào ví thợ đào.
+    2. Smart Learning: Chỉ học kiến thức đúng.
+    3. Auto Level Up: Tự động tăng độ khó.
+    """
     conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Khởi tạo giá trị thưởng mặc định
+    reward = 0.0
+    
     try:
-        # 1. Cập nhật trạng thái DONE
-        conn.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
+        # --- BƯỚC 1: XÁC THỰC THỢ ĐÀO (AUTH) ---
+        # Kiểm tra xem Key này là của Admin hay của Thợ đào đăng ký
+        c.execute("SELECT username, balance FROM users WHERE api_key=?", (x_api_key,))
+        user = c.fetchone()
         
-        # 2. Lưu kiến thức vào Kho não bộ (Bảng work_logs cũ)
+        # Nếu không phải Admin và cũng không tìm thấy User trong DB -> Chặn
+        if x_api_key != ADMIN_SECRET and not user:
+            raise HTTPException(status_code=403, detail="API Key không hợp lệ hoặc chưa đăng ký!")
+
+        # --- BƯỚC 2: CẬP NHẬT TRẠNG THÁI TASK ---
+        c.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
+        
+        # --- BƯỚC 3: KIỂM TRA CHẤT LƯỢNG & TÍNH TIỀN ---
+        is_success = "CHẠY THÀNH CÔNG" in res.result_content
+        
+        if is_success:
+            # A. Tính thưởng (Ví dụ: $0.05 cho mỗi task thành công)
+            reward = 0.05 
+            
+            # B. Cộng tiền vào ví (Chỉ cộng nếu là User, Admin test thì thôi)
+            if user:
+                username = user[0]
+                c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (reward, username))
+                print(colored(f"💰 [PAYMENT] Đã chuyển ${reward} cho thợ đào {username}", "green"))
+            
+            # C. Smart Learning (Chỉ học cái đúng)
+            if AI_AVAILABLE:
+                print(colored("🧠 [AI LEARNING] Nạp kiến thức chuẩn vào não bộ...", "magenta"))
+                
+                knowledge_pack = f"""
+                [BÁO CÁO THỰC NGHIỆM TỪ WORKER VỆ TINH]
+                Chủ đề: Task {res.task_id}
+                Worker ID: {res.worker_id}
+                Kết quả: THÀNH CÔNG
+                ---------------------------
+                Nội dung chi tiết:
+                {res.result_content}
+                """
+                await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
+
+                # D. Auto Level Up (Kích hoạt tạo bài khó hơn)
+                if 'generate_harder_task' in globals():
+                    asyncio.create_task(generate_harder_task(res.result_content))
+        else:
+            print(colored(f"⚠️ [SKIP] Task {res.task_id} thất bại/lỗi. Không thưởng, không học.", "yellow"))
+
+        # --- BƯỚC 4: LƯU NHẬT KÝ ---
         timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
-        conn.execute("""
-            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used)
-            VALUES (?, ?, ?, ?, ?)
-        """, (timestamp, f"WORKER_{res.worker_id}", f"Nghiên cứu: {res.task_id}", res.result_content, "DISTRIBUTED_LEARNING"))
+        c.execute("""
+            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            timestamp, 
+            f"WORKER_{res.worker_id}", 
+            f"Task {res.task_id}", 
+            res.result_content, 
+            "DISTRIBUTED_MINING",
+            reward # Ghi lại chi phí đã trả cho task này
+        ))
         
         conn.commit()
-        print(colored(f"✅ Nhận báo cáo từ {res.worker_id}", "green"))
-        
-        # 3. Kích hoạt AI Server học ngầm (Nếu cần)
-        if AI_AVAILABLE:
-            from main import learn_knowledge
-            await run_in_threadpool(lambda: learn_knowledge(res.result_content))
-            
-        return {"status": "success"}
+        return {
+            "status": "success", 
+            "reward_earned": reward,
+            "message": "Đã ghi nhận kết quả."
+        }
+
+    except Exception as e:
+        print(colored(f"❌ Lỗi nộp bài: {e}", "red"))
+        # Vẫn trả về 200 nhưng báo lỗi trong body để Worker không bị crash
+        return {"status": "error", "message": str(e)}
     finally:
         conn.close()
 
