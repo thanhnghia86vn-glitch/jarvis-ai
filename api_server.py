@@ -14,6 +14,7 @@ import base64
 import asyncio
 import re
 import zipfile
+import hashlib
 from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -1497,82 +1498,110 @@ async def generate_harder_task(previous_result):
     except Exception as e:
         print(f"⚠️ Lỗi sinh bài tập khó: {e}")
 # --- API 2: NHẬN KẾT QUẢ (Dành cho Worker nộp bài) ---
+# Hàm tạo mã vân tay (Fingerprint)
+def create_content_hash(content):
+    return hashlib.md5(content.strip().encode('utf-8')).hexdigest()
+
 @app.post("/api/worker/submit_task")
 async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
     """
-    API nhận kết quả từ Worker (FINAL VERSION).
-    Tính năng:
-    1. Dynamic Pricing: Trả thưởng theo giá niêm yết trong DB.
-    2. Smart Learning: Nạp kiến thức vào não bộ nếu kết quả tốt.
-    3. Auto Level Up: Kích hoạt tạo task khó hơn.
+    API nhận kết quả từ Worker (OPTIMIZED VERSION).
+    Quy trình: Check Auth -> Check Task -> Check Duplicate -> Update Status -> Pay -> Learn -> Log.
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Biến lưu số tiền thực tế sẽ trả
+    # Biến lưu số tiền thực tế sẽ trả (Mặc định là 0)
     final_pay = 0.0 
     
     try:
-        # --- BƯỚC 1: XÁC THỰC (AUTH) ---
-        # Kiểm tra xem Key này là của ai?
+        # =================================================
+        # 1. XÁC THỰC (AUTHENTICATION)
+        # =================================================
         c.execute("SELECT username, balance FROM users WHERE api_key=?", (x_api_key,))
         user = c.fetchone()
         
-        # Nếu không phải Admin và cũng không tìm thấy User -> CHẶN
         if x_api_key != ADMIN_SECRET and not user:
              raise HTTPException(status_code=403, detail="API Key không hợp lệ!")
 
-        # --- BƯỚC 2: LẤY THÔNG TIN TASK & GIÁ NIÊM YẾT ---
-        c.execute("SELECT reward, task_type, topic FROM learning_tasks WHERE id=?", (res.task_id,))
+        # =================================================
+        # 2. KIỂM TRA THÔNG TIN TASK (VALIDATION)
+        # =================================================
+        c.execute("SELECT reward, task_type, topic, status FROM learning_tasks WHERE id=?", (res.task_id,))
         task_info = c.fetchone()
         
+        # Nếu task không tồn tại hoặc đã có người làm xong
         if not task_info:
-            return {"status": "error", "msg": "Task không tồn tại hoặc đã bị hủy"}
+            return {"status": "error", "msg": "Task không tồn tại"}
+        if task_info[3] == 'DONE':
+            return {"status": "error", "msg": "Task này đã hoàn thành, bạn nộp muộn rồi!"}
 
-        # [QUAN TRỌNG] Lấy giá tiền đã thỏa thuận từ Database
-        agreed_reward = task_info[0] or 0.0   
+        # Lấy thông tin cần thiết
+        agreed_reward = task_info[0] or 0.0   # Giá tiền Dynamic
         task_type = task_info[1]
         topic = task_info[2]
 
-        # --- BƯỚC 3: CẬP NHẬT TRẠNG THÁI TASK ---
-        # Đánh dấu là đã xong để không giao cho máy khác nữa
-        c.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
+        # =================================================
+        # 3. KIỂM TRA TRÙNG LẶP (DUPLICATE CHECK)
+        # =================================================
+        is_duplicate = False
+        # Tạo mã băm nội dung để kiểm tra nhanh
+        content_hash = create_content_hash(res.result_content)
         
-        # --- BƯỚC 4: KIỂM TRA CHẤT LƯỢNG & TRẢ TIỀN ---
-        # Kiểm tra xem Worker có báo thành công không?
+        # Kiểm tra trong lịch sử xem nội dung này đã từng xuất hiện chưa
+        # (Lưu ý: Tốt nhất là check cột hash, ở đây check tạm content)
+        c.execute("SELECT id FROM work_logs WHERE result_summary = ?", (res.result_content,))
+        if c.fetchone():
+            is_duplicate = True
+            print(colored(f"♻️ [DUPLICATE] Phát hiện nội dung trùng lặp từ {res.worker_id}", "yellow"))
+
+        # =================================================
+        # 4. CẬP NHẬT TRẠNG THÁI TASK (CRITICAL UPDATE)
+        # =================================================
+        # Dù kết quả thế nào, cũng phải đánh dấu task là DONE để không treo hệ thống
+        c.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
+
+        # =================================================
+        # 5. XỬ LÝ THANH TOÁN & HỌC TẬP (LOGIC CỐT LÕI)
+        # =================================================
         is_success = "CHẠY THÀNH CÔNG" in res.result_content or "Success" in res.result_content
         
         if is_success:
-            # A. Chốt số tiền thưởng (Dùng giá Dynamic, không dùng cứng 0.05 nữa)
-            final_pay = agreed_reward 
-            
-            # B. Cộng tiền vào ví (Chỉ cộng nếu là User thực, Admin test thì không cộng)
-            if user:
-                username = user[0]
-                c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
-                print(colored(f"💰 [THANH TOÁN] Đã chuyển ${final_pay} cho {username} (Task: {task_type})", "green"))
-            
-            # C. Smart Learning (Chỉ học khi kết quả Tốt)
-            # Điều kiện: Có module AI VÀ nội dung đủ dài (>50 ký tự)
-            if AI_AVAILABLE and len(res.result_content) > 50:
-                print(colored("🧠 [HIVE MIND] Server đang hấp thụ kiến thức mới...", "magenta"))
+            if is_duplicate:
+                # Nếu làm đúng nhưng nộp bài copy -> Không trả tiền (hoặc trả rất ít)
+                final_pay = 0.0
+            else:
+                # Nếu làm đúng và mới mẻ -> Trả đủ tiền
+                final_pay = agreed_reward
                 
-                knowledge_pack = f"""
-                [KIẾN THỨC MỚI TỪ VỆ TINH {res.worker_id}]
-                Chủ đề: {topic} (Loại: {task_type})
-                Kết quả thực nghiệm:
-                {res.result_content}
-                """
-                # Chạy ngầm việc học để không làm chậm phản hồi cho Worker
-                await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
+                # A. Cộng tiền vào ví (Payment)
+                if user:
+                    username = user[0]
+                    c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
+                    print(colored(f"💰 [PAYMENT] Đã trả ${final_pay} cho {username} (Task: {topic})", "green"))
 
-                # D. Auto Level Up (Nếu có tính năng này)
-                if 'generate_harder_task' in globals():
-                    asyncio.create_task(generate_harder_task(res.result_content))
+                # B. Học tập thông minh (Smart Learning) - Chỉ học cái mới
+                if AI_AVAILABLE and len(res.result_content) > 50:
+                    print(colored("🧠 [HIVE MIND] Đang nạp kiến thức mới vào não bộ...", "magenta"))
+                    
+                    knowledge_pack = f"""
+                    [KIẾN THỨC MỚI TỪ VỆ TINH {res.worker_id}]
+                    Chủ đề: {topic} (Loại: {task_type})
+                    Kết quả:
+                    {res.result_content}
+                    """
+                    # Chạy ngầm để không block phản hồi
+                    await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
+
+                    # C. Tự động thăng cấp (Auto Level Up)
+                    if 'generate_harder_task' in globals():
+                        asyncio.create_task(generate_harder_task(res.result_content))
         else:
-            print(colored(f"⚠️ [SKIP] Task {res.task_id} thất bại. Không thưởng.", "yellow"))
+            print(colored(f"⚠️ [FAIL] Task {res.task_id} thất bại. Không thưởng.", "red"))
 
-        # --- BƯỚC 5: LƯU NHẬT KÝ (LOGGING) ---
+        # =================================================
+        # 6. LƯU NHẬT KÝ (LOGGING)
+        # =================================================
         timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
         c.execute("""
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
@@ -1582,18 +1611,17 @@ async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
             f"WORKER_{res.worker_id}", 
             f"Task {res.task_id}: {topic}", 
             res.result_content, 
-            "DISTRIBUTED_MINING",
-            final_pay # Ghi lại chi phí thực tế đã trả
+            "DISTRIBUTED_MINING", 
+            final_pay # Ghi đúng số tiền thực trả
         ))
         
         conn.commit()
         
-        # Trả về kết quả cho Worker vui
         return {
             "status": "success", 
             "reward_earned": final_pay,
             "task_type": task_type,
-            "message": f"Hoàn thành! Bạn nhận được ${final_pay}"
+            "message": f"Hoàn thành! Nhận ${final_pay}" if final_pay > 0 else "Hoàn thành (Không thưởng do trùng lặp/lỗi)"
         }
 
     except Exception as e:
@@ -1601,7 +1629,6 @@ async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
         return {"status": "error", "message": str(e)}
     finally:
         conn.close()
-
 @app.post("/api/admin/create_job")
 async def create_job(topic: str, type: str, price: float, x_api_key: str = Header(None)):
     """
