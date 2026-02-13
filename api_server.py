@@ -209,9 +209,12 @@ class DatabaseManager:
                 conn.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS learning_tasks (
                         id {pk_type},
-                        topic {text_type} UNIQUE,
-                        status {text_type} DEFAULT 'PENDING',
-                        assigned_to {text_type},
+                        topic TEXT,
+                        status TEXT DEFAULT 'PENDING',
+                        assigned_to TEXT,
+                        task_type TEXT DEFAULT 'RESEARCH',  -- Loại việc (Học/Làm)
+                        content TEXT DEFAULT '',
+                        reward REAL DEFAULT 0.0,            -- <--- CỘT GIÁ TIỀN (QUAN TRỌNG)
                         difficulty INTEGER DEFAULT 1,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -232,25 +235,18 @@ class DatabaseManager:
                 # --- 2. TỰ ĐỘNG NÂNG CẤP (AUTO-MIGRATE) ---
                 # Đoạn này sẽ cố gắng thêm cột mới. Nếu có rồi thì bỏ qua (Pass).
                 # Đây là cách sạch nhất để sửa lỗi "no such column" mà không mất dữ liệu cũ.
-                try:
-                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN task_type TEXT DEFAULT 'RESEARCH'"))
-                    print(colored("🛠️ [MIGRATION] Đã bổ sung cột 'task_type'", "yellow"))
-                except Exception: 
-                    pass # Cột đã tồn tại -> Bỏ qua
+                # Kỹ thuật này giúp bạn không bị lỗi "no such column"
+                try: conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN reward REAL DEFAULT 0.0")); print("✅ Đã thêm cột giá tiền (reward)"); 
+                except: pass
                 
-                try:
-                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN content TEXT DEFAULT ''"))
-                    print(colored("🛠️ [MIGRATION] Đã bổ sung cột 'content'", "yellow"))
-                except Exception:
-                    pass # Cột đã tồn tại -> Bỏ qua
+                try: conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN task_type TEXT DEFAULT 'RESEARCH'")); print("✅ Đã thêm cột loại việc (task_type)"); 
+                except: pass
 
                 conn.commit()
-            print(colored("✅ DATABASE READY (Schema Updated)", "green"))
+            print(colored("✅ DATABASE SCHEMA: UP-TO-DATE (Có giá tiền & loại việc)", "green"))
             
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
-            import traceback
-            traceback.print_exc()
 
 db_manager = DatabaseManager()
 # ==========================================
@@ -1504,66 +1500,79 @@ async def generate_harder_task(previous_result):
 @app.post("/api/worker/submit_task")
 async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
     """
-    API nhận kết quả từ Worker.
-    Nâng cấp:
-    1. Trả thưởng (Economy): Cộng tiền vào ví thợ đào.
-    2. Smart Learning: Chỉ học kiến thức đúng.
-    3. Auto Level Up: Tự động tăng độ khó.
+    API nhận kết quả từ Worker (FINAL VERSION).
+    Tính năng:
+    1. Dynamic Pricing: Trả thưởng theo giá niêm yết trong DB.
+    2. Smart Learning: Nạp kiến thức vào não bộ nếu kết quả tốt.
+    3. Auto Level Up: Kích hoạt tạo task khó hơn.
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Khởi tạo giá trị thưởng mặc định
-    reward = 0.0
+    # Biến lưu số tiền thực tế sẽ trả
+    final_pay = 0.0 
     
     try:
-        # --- BƯỚC 1: XÁC THỰC THỢ ĐÀO (AUTH) ---
-        # Kiểm tra xem Key này là của Admin hay của Thợ đào đăng ký
+        # --- BƯỚC 1: XÁC THỰC (AUTH) ---
+        # Kiểm tra xem Key này là của ai?
         c.execute("SELECT username, balance FROM users WHERE api_key=?", (x_api_key,))
         user = c.fetchone()
         
-        # Nếu không phải Admin và cũng không tìm thấy User trong DB -> Chặn
+        # Nếu không phải Admin và cũng không tìm thấy User -> CHẶN
         if x_api_key != ADMIN_SECRET and not user:
-            raise HTTPException(status_code=403, detail="API Key không hợp lệ hoặc chưa đăng ký!")
+             raise HTTPException(status_code=403, detail="API Key không hợp lệ!")
 
-        # --- BƯỚC 2: CẬP NHẬT TRẠNG THÁI TASK ---
+        # --- BƯỚC 2: LẤY THÔNG TIN TASK & GIÁ NIÊM YẾT ---
+        c.execute("SELECT reward, task_type, topic FROM learning_tasks WHERE id=?", (res.task_id,))
+        task_info = c.fetchone()
+        
+        if not task_info:
+            return {"status": "error", "msg": "Task không tồn tại hoặc đã bị hủy"}
+
+        # [QUAN TRỌNG] Lấy giá tiền đã thỏa thuận từ Database
+        agreed_reward = task_info[0] or 0.0   
+        task_type = task_info[1]
+        topic = task_info[2]
+
+        # --- BƯỚC 3: CẬP NHẬT TRẠNG THÁI TASK ---
+        # Đánh dấu là đã xong để không giao cho máy khác nữa
         c.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
         
-        # --- BƯỚC 3: KIỂM TRA CHẤT LƯỢNG & TÍNH TIỀN ---
-        is_success = "CHẠY THÀNH CÔNG" in res.result_content
+        # --- BƯỚC 4: KIỂM TRA CHẤT LƯỢNG & TRẢ TIỀN ---
+        # Kiểm tra xem Worker có báo thành công không?
+        is_success = "CHẠY THÀNH CÔNG" in res.result_content or "Success" in res.result_content
         
         if is_success:
-            # A. Tính thưởng (Ví dụ: $0.05 cho mỗi task thành công)
-            reward = 0.05 
+            # A. Chốt số tiền thưởng (Dùng giá Dynamic, không dùng cứng 0.05 nữa)
+            final_pay = agreed_reward 
             
-            # B. Cộng tiền vào ví (Chỉ cộng nếu là User, Admin test thì thôi)
+            # B. Cộng tiền vào ví (Chỉ cộng nếu là User thực, Admin test thì không cộng)
             if user:
                 username = user[0]
-                c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (reward, username))
-                print(colored(f"💰 [PAYMENT] Đã chuyển ${reward} cho thợ đào {username}", "green"))
+                c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
+                print(colored(f"💰 [THANH TOÁN] Đã chuyển ${final_pay} cho {username} (Task: {task_type})", "green"))
             
-            # C. Smart Learning (Chỉ học cái đúng)
-            if AI_AVAILABLE:
-                print(colored("🧠 [AI LEARNING] Nạp kiến thức chuẩn vào não bộ...", "magenta"))
+            # C. Smart Learning (Chỉ học khi kết quả Tốt)
+            # Điều kiện: Có module AI VÀ nội dung đủ dài (>50 ký tự)
+            if AI_AVAILABLE and len(res.result_content) > 50:
+                print(colored("🧠 [HIVE MIND] Server đang hấp thụ kiến thức mới...", "magenta"))
                 
                 knowledge_pack = f"""
-                [BÁO CÁO THỰC NGHIỆM TỪ WORKER VỆ TINH]
-                Chủ đề: Task {res.task_id}
-                Worker ID: {res.worker_id}
-                Kết quả: THÀNH CÔNG
-                ---------------------------
-                Nội dung chi tiết:
+                [KIẾN THỨC MỚI TỪ VỆ TINH {res.worker_id}]
+                Chủ đề: {topic} (Loại: {task_type})
+                Kết quả thực nghiệm:
                 {res.result_content}
                 """
+                # Chạy ngầm việc học để không làm chậm phản hồi cho Worker
                 await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
 
-                # D. Auto Level Up (Kích hoạt tạo bài khó hơn)
+                # D. Auto Level Up (Nếu có tính năng này)
                 if 'generate_harder_task' in globals():
                     asyncio.create_task(generate_harder_task(res.result_content))
         else:
-            print(colored(f"⚠️ [SKIP] Task {res.task_id} thất bại/lỗi. Không thưởng, không học.", "yellow"))
+            print(colored(f"⚠️ [SKIP] Task {res.task_id} thất bại. Không thưởng.", "yellow"))
 
-        # --- BƯỚC 4: LƯU NHẬT KÝ ---
+        # --- BƯỚC 5: LƯU NHẬT KÝ (LOGGING) ---
         timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
         c.execute("""
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
@@ -1571,27 +1580,48 @@ async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
         """, (
             timestamp, 
             f"WORKER_{res.worker_id}", 
-            f"Task {res.task_id}", 
+            f"Task {res.task_id}: {topic}", 
             res.result_content, 
             "DISTRIBUTED_MINING",
-            reward # Ghi lại chi phí đã trả cho task này
+            final_pay # Ghi lại chi phí thực tế đã trả
         ))
         
         conn.commit()
+        
+        # Trả về kết quả cho Worker vui
         return {
             "status": "success", 
-            "reward_earned": reward,
-            "message": "Đã ghi nhận kết quả."
+            "reward_earned": final_pay,
+            "task_type": task_type,
+            "message": f"Hoàn thành! Bạn nhận được ${final_pay}"
         }
 
     except Exception as e:
         print(colored(f"❌ Lỗi nộp bài: {e}", "red"))
-        # Vẫn trả về 200 nhưng báo lỗi trong body để Worker không bị crash
         return {"status": "error", "message": str(e)}
     finally:
         conn.close()
 
+@app.post("/api/admin/create_job")
+async def create_job(topic: str, type: str, price: float, x_api_key: str = Header(None)):
+    """
+    Admin tạo việc thủ công và set giá tiền.
+    Ví dụ: 
+    - Type: "RESEARCH" (Học) -> Price: $0.01
+    - Type: "CODING" (Làm)   -> Price: $0.50
+    """
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    
+    with db_manager.get_connection() as conn:
+        conn.execute(
+            text("INSERT INTO learning_tasks (topic, task_type, reward, status) VALUES (:t, :type, :r, 'PENDING')"),
+            {"t": topic, "type": type, "r": price}
+        )
+        conn.commit()
+    
+    return {"msg": f"Đã tạo việc '{topic}' loại {type} với giá ${price}"}
 # --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
+
 @app.post("/api/admin/seed_tasks")
 async def seed_learning_tasks(topics: List[str], x_api_key: str = Header(None)):
     """Admin nạp một list chủ đề cần học vào hàng đợi"""
