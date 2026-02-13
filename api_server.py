@@ -55,10 +55,15 @@ PROJECTS_DIR = os.path.join(BASE_DATA_DIR, "projects")
 DB_PATH = os.path.join(BASE_DATA_DIR, "ai_corp_projects.db")
 VECTOR_DB_PATH = os.path.join(BASE_DATA_DIR, "db_knowledge") # Folder chứa vector database
 TTS_CACHE_DIR = os.path.join(BASE_DATA_DIR, "tts_cache")
-# 3. Biến môi trường Database (Cập nhật lại cho SQLite nếu dùng Disk)
-# Nếu không dùng PostgreSQL mà dùng SQLite trên Disk thì set lại url
-if not os.environ.get("DATABASE_URL") and os.path.exists(RENDER_DISK_PATH):
-    # Ép dùng SQLite trên ổ cứng Cloud để bền vững
+# 3. CẤU HÌNH DATABASE (FIX LỖI SPLIT BRAIN)
+# Bất kể Render có cấp PostgreSQL hay không, ta vẫn ÉP DÙNG SQLITE 
+# để đồng bộ với các hàm sqlite3.connect() bên dưới.
+if os.path.exists(RENDER_DISK_PATH):
+    # Chạy trên Cloud -> Dùng ổ cứng gắn ngoài
+    os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
+    print(colored("cloud_mode: Ép dùng SQLite trên Disk để đồng bộ.", "yellow"))
+else:
+    # Chạy Local -> Dùng file tại chỗ
     os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
 
 AI_AVAILABLE = False
