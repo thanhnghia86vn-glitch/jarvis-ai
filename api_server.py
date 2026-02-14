@@ -284,6 +284,8 @@ class ConnectionManager:
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
+    
+
     async def send_json(self, data: dict, websocket: WebSocket):
         """Gửi dữ liệu JSON (Quan trọng cho Dashboard hiển thị ảnh/agent)"""
         await websocket.send_json(data)
@@ -929,6 +931,36 @@ async def get_system_stats():
     except Exception as e:
         print(f"Lỗi Stats: {e}")
         return {"products": 0, "revenue": 0, "expense": 0, "balance": 0}
+
+@app.post("/api/admin/send_me_report")
+async def send_report_to_ceo(subject: str, message: str, x_api_key: str = Header(None)):
+        """API cho phép J.A.R.V.I.S gửi mail trực tiếp cho CEO"""
+        if x_api_key != ADMIN_SECRET:
+            raise HTTPException(status_code=403, detail="Sai mã lệnh quân sự!")
+
+        # Nội dung HTML chuyên nghiệp cho CEO
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; border: 1px solid #00ff99; padding: 20px; border-radius: 10px;">
+            <h2 style="color: #00ff99;">🚀 J.A.R.V.I.S SYSTEM REPORT</h2>
+            <p style="color: #333;">Thưa CEO, hệ thống tại Phan Thiết vừa hoàn thành nhiệm vụ:</p>
+            <div style="background-color: #f4f4f4; padding: 15px; border-left: 5px solid #00ff99;">
+                {message}
+            </div>
+            <p style="font-size: 12px; color: #888; margin-top: 20px;">
+                Thời gian báo cáo: {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}
+            </p>
+        </div>
+        """
+        
+        # Gửi đến email cá nhân của ngài (thay bằng mail ngài muốn nhận)
+        ceo_email = "thanhnghia86.vn@gmail.com" # <--- Điền mail của ngài vào đây
+        
+        success = jarvis_identity.send_system_mail(ceo_email, subject, html_content)
+        
+        if success:
+            return {"status": "success", "msg": "Đã gửi báo cáo vào hòm thư của ngài."}
+        else:
+            return {"status": "error", "msg": "Gửi mail thất bại. Kiểm tra lại MAIL_PASSWORD trong .env"}
 
 async def fetch_external_projects(keyword):
     search_query = f"site:freelancer.com '{keyword}' job"
