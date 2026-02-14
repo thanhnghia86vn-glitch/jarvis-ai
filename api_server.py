@@ -15,6 +15,9 @@ import asyncio
 import re
 import zipfile
 import hashlib
+import requests
+import feedparser
+from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -154,6 +157,8 @@ class CourseRequest(BaseModel):
     subject: str      # Chủ đề lớn (VD: Học về ReactJS)
     num_tasks: int = 10 # Số lượng task muốn chia nhỏ 
 
+class HunterRequest(BaseModel): # <--- Giải pháp cho lỗi gạch vàng
+    keyword: str
 # ==========================================
 # 1. DATABASE MANAGER
 # ==========================================
@@ -1652,6 +1657,9 @@ async def create_job(topic: str, type: str, price: float, x_api_key: str = Heade
     
     return {"msg": f"Đã tạo việc '{topic}' loại {type} với giá ${price}"}
 
+# ==========================================
+# 3. PHẦN 5: AI SUPERVISOR
+# ==========================================
 @app.post("/api/admin/auto_distribute_knowledge")
 async def auto_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(None)):
     """
@@ -1900,6 +1908,82 @@ async def websocket_nexus(websocket: WebSocket):
         logger.error(f"WS Error: {e}")
         manager.disconnect(websocket)
 
+def hunt_freelance_projects(keyword="python"):
+    # Ví dụ quét từ một nguồn tin tuyển dụng/dự án (đã được cấu hình RSS hoặc API)
+    # Đây là logic giả lập cách J.A.R.V.I.S đi "tìm việc"
+    search_url = f"https://www.freelancer.com/jobs/{keyword}/"
+    
+    try:
+        resp = requests.get(search_url)
+        # AI sẽ phân tích nội dung trang web ở đây để lấy Title, Budget và Description
+        # Sau đó tự động tạo payload để nạp vào Dashboard
+        print(f"📡 Đang quét các dự án {keyword} mới nhất trên thị trường...")
+        return True
+    except:
+        return False
+
+class ProjectHunter:
+    @staticmethod
+    async def hunt_and_distribute(keyword: str):
+        # Ví dụ: Quét từ RSS Feed của các sàn việc làm (thay bằng link thực tế của bạn)
+        # Ở đây tôi dùng link giả lập hoặc một nguồn tin cậy
+        feeds = [
+            f"https://remoteok.com/remote-{keyword}-jobs.rss",
+            f"https://www.upwork.com/ab/feed/jobs/rss?q={keyword}"
+        ]
+        
+        new_projects = []
+        for url in feeds:
+            try:
+                feed = await run_in_threadpool(lambda: feedparser.parse(url))
+                for entry in feed.entries[:5]: # Lấy 5 tin mới nhất mỗi nguồn
+                    new_projects.append({
+                        "title": entry.title,
+                        "link": entry.link,
+                        "summary": entry.summary
+                    })
+            except: continue
+
+        if not new_projects: return 0
+
+        # Dùng AI để thẩm định và bóc tách
+        count = 0
+        for proj in new_projects:
+            prompt = f"""
+            Phân tích dự án freelance này: 
+            Tiêu đề: {proj['title']}
+            Mô tả: {proj['summary']}
+            
+            Nếu dự án này khả thi để làm bằng code hoặc nghiên cứu, hãy chia nó thành 3-5 task nhỏ.
+            Trả về JSON list: [{{"topic": "...", "type": "...", "reward": ...}}]
+            """
+            try:
+                ai_res = await CHAT_MODEL.ainvoke(prompt)
+                tasks = json.loads(ai_res.content.replace("```json", "").replace("```", "").strip())
+                
+                with db_manager.get_connection() as conn:
+                    for t in tasks:
+                        conn.execute(text("""
+                            INSERT INTO learning_tasks (topic, task_type, reward, content, status)
+                            VALUES (:t, :type, :r, :c, 'PENDING')
+                        """), {
+                            "t": f"🚀 [HUNTER] {t['topic']}",
+                            "type": t['type'], "r": t['reward'], "c": f"Dự án gốc: {proj['link']}\nNhiệm vụ: {t['topic']}"
+                        })
+                    conn.commit()
+                count += 1
+            except: continue
+        return count
+
+# --- API ĐIỀU KHIỂN THỢ SĂN ---
+@app.post("/api/admin/start_hunting")
+async def start_hunting_api(req: HunterRequest, x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: 
+        raise HTTPException(status_code=403)
+    
+    # Gọi thợ săn chạy ngầm
+    found = await ProjectHunter.hunt_and_distribute(req.keyword)
+    return {"status": "success", "projects_hunted": found}
 # ==========================================
 # 🚀 SYSTEM ROUTES
 # ==========================================
