@@ -34,4 +34,6 @@ gtts
 fpdf2
 termcolor
 cryptography
+chart.js
+
 
