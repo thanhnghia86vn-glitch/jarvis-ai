@@ -52,8 +52,23 @@
 
         <main class="flex flex-1 gap-4 overflow-hidden">
             <div class="w-1/4 flex flex-col gap-3 h-full">
+                
+                <div class="glass-panel p-4 border-l-2 border-indigo-500 bg-indigo-950/10 shadow-lg">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-robot animate-pulse"></i> System Autopilot
+                        </h3>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="autoPilotToggle" onchange="toggleAutoPilot()" class="sr-only peer">
+                            <div class="w-7 h-4 bg-slate-700 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-3"></div>
+                        </label>
+                    </div>
+                    <p class="text-[7px] text-slate-500 italic mt-1">AI tự động săn tin và phân bổ task 24/7</p>
+                </div>
                 <div class="glass-panel p-4 border-t-2 border-blue-500">
-                    <h3 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-brain"></i> Supervisor</h3>
+                    <h3 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i class="fas fa-brain"></i> Supervisor
+                    </h3>
                     <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-blue-500" placeholder="Chủ đề bài học...">
                     <div class="flex gap-2">
                         <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1"><option value="5">05 Tasks</option><option value="15" selected>15 Tasks</option></select>
@@ -121,8 +136,7 @@
     <div id="detailModal" class="hidden fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-8 backdrop-blur-xl">
         <div class="bg-slate-900 border border-blue-500/30 w-full max-w-5xl h-[85vh] rounded-xl flex flex-col overflow-hidden shadow-2xl">
             <div class="p-4 border-b border-slate-800 flex justify-between items-center text-blue-400 font-orbitron uppercase tracking-widest">
-                <span>Data_Insight_Decryption</span>
-                <button onclick="document.getElementById('detailModal').classList.add('hidden')" class="text-3xl font-light hover:text-red-500 transition-all">&times;</button>
+                <span id="modal-title">Data_Insight_Decryption</span> <button onclick="document.getElementById('detailModal').classList.add('hidden')" class="text-3xl font-light hover:text-red-500 transition-all">&times;</button>
             </div>
             <div id="modal-content" class="p-10 custom-scroll text-sm text-slate-300 font-sans leading-relaxed"></div>
         </div>
@@ -162,6 +176,18 @@
             } catch (e) { console.error("TTS_FAIL"); }
         }
 
+        async function toggleAutoPilot() {
+            const isActive = document.getElementById('autoPilotToggle').checked;
+            const status = isActive ? "ON" : "OFF";
+            try {
+                await fetch('/api/admin/set_autopilot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
+                    body: JSON.stringify({ status: status })
+                });
+                addChat("AI", `Hệ thống Autopilot đã chuyển sang trạng thái: **${status}**`);
+            } catch (e) { console.error("Autopilot fail"); }
+        }
         // 4. MISSION FUNCTIONS
         async function distributeKnowledge() {
             const subject = document.getElementById('subjectInput').value;
@@ -238,21 +264,44 @@
 
                 logsData = logs; // Lưu cache dữ liệu
 
-                document.getElementById('audit-table-body').innerHTML = logs.map((item, idx) => `
-                    <div onclick="showDetail(${idx})" 
-                         class="relative bg-slate-900/60 p-3 rounded border border-slate-800 hover:border-blue-500 hover:bg-slate-800/80 cursor-pointer transition-all active:scale-[0.96] mb-2 group shadow-sm">
-                        <div class="flex justify-between text-[7px] text-slate-500 mb-1">
-                            <span class="font-mono">${item.timestamp}</span>
-                            <span class="text-green-500 font-bold tracking-tighter">$${(item.cost_usd || item.cost || 0).toFixed(4)}</span>
-                        </div>
-                        <div class="text-[9px] font-bold text-slate-200 group-hover:text-blue-400 transition-colors uppercase">
-                            ${item.agent || item.agent_name || 'UNDEFINED_NODE'}
-                        </div>
-                        <div class="truncate text-slate-400 text-[8px] mt-1 italic line-clamp-1">
-                            ${item.task || item.task_content || 'Executing mission...'}
-                        </div>
-                        <div class="absolute inset-0 z-10"></div> </div>`).join('');
+                const auditBody = document.getElementById('audit-table-body');
+        
+                auditBody.innerHTML = logs.map((item, idx) => {
+                    // 1. Logic phân tích trạng thái từ nội dung Task
+                    const isApproved = item.task && item.task.includes("APPROVED");
+                    const isRejected = item.task && item.task.includes("REJECTED");
+                    
+                    // 2. Định nghĩa màu sắc khung (Border) và chữ (Text)
+                    let statusClass = "border-slate-800 text-slate-400"; // Mặc định
+                    if (isApproved) statusClass = "border-green-500/50 bg-green-950/10 shadow-[0_0_10px_rgba(34,197,94,0.1)]";
+                    if (isRejected) statusClass = "border-red-500/50 bg-red-950/10 shadow-[0_0_10px_rgba(239,68,68,0.1)]";
 
+                    const agentColor = isApproved ? "text-green-400" : (isRejected ? "text-red-400" : "text-blue-300");
+
+                    // 3. Trả về giao diện thẻ Log mới
+                    return `
+                        <div onclick="showDetail(${idx})" 
+                            class="relative p-3 rounded border ${statusClass} hover:bg-slate-800/80 cursor-pointer transition-all active:scale-[0.96] mb-2 group">
+                            
+                            <div class="flex justify-between text-[7px] text-slate-500 mb-1">
+                                <span class="font-mono">${item.timestamp}</span>
+                                <span class="font-bold ${isApproved ? 'text-green-500' : 'text-slate-400'}">
+                                    ${isApproved ? '+$' : '$'}${item.cost_usd.toFixed(4)}
+                                </span>
+                            </div>
+
+                            <div class="flex items-center gap-2 mb-1">
+                                <div class="text-[9px] font-bold ${agentColor} uppercase tracking-tighter">${item.agent}</div>
+                                ${isApproved ? '<span class="text-[5px] bg-green-500/20 text-green-400 px-1 rounded border border-green-500/30 uppercase font-bold">Passed</span>' : ''}
+                                ${isRejected ? '<span class="text-[5px] bg-red-500/20 text-red-400 px-1 rounded border border-red-500/30 uppercase font-bold">Failed</span>' : ''}
+                            </div>
+
+                            <div class="truncate text-[8px] italic text-slate-400 font-sans">${item.task}</div>
+                            
+                            <div class="absolute inset-0 z-10"></div>
+                        </div>
+                    `;
+                }).join('');
                 if(wealth.financial_report) {
                     const cost = wealth.financial_report.total_cost_usd;
                     document.getElementById('total-cost').innerText = `$${cost.toFixed(4)}`;
