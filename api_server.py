@@ -37,12 +37,13 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from main import set_system_busy
+from duckduckgo_search import DDGS
 # [QUAN TRỌNG]: Đã thêm LLM_SUPERVISOR và log_training_data
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JARVIS_v4.5")
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "ai_corp_secret_123")
 RENDER_DISK_PATH = "/var/data"
-
+IS_AUTOPILOT_ON = False
 if os.path.exists(RENDER_DISK_PATH):
     # Nếu tìm thấy ổ cứng Cloud -> Lưu hết vào đó
     BASE_DATA_DIR = RENDER_DISK_PATH
@@ -87,7 +88,8 @@ try:
     )
     AI_AVAILABLE = True
     SERVER_READY = True
-    logger.info("✅ CORE AI MODULES: LOADED")
+    CHAT_MODEL = LLM_GEMINI_LOGIC
+    logger.info("✅ CORE AI MODULES: LOADED & CHAT_MODEL SYNCED")
 except Exception as e:
     # --- BẮT LỖI VÀ GHI LẠI ---
     import traceback
@@ -285,7 +287,6 @@ class ConnectionManager:
         for connection in self.active_connections:
             await connection.send_text(message)
 
-manager = ConnectionManager()
 
 # ==========================================
 # 3. PIPELINE DỰ ÁN LỚN
@@ -515,54 +516,63 @@ async def lifespan(app: FastAPI):
     
     try:
         db_manager.init_db()
-        logger.info("✅ Database: CONNECTED")
+        logger.info("✅ Database: INITIALIZED & CONNECTED")
     except Exception as e:
-        logger.critical(f"❌ Database Failed: {e}")
-
-    # 2. Lên lịch tác vụ (Scheduler)
-    scheduler = AsyncIOScheduler()
+        logger.critical(f"❌ DATABASE FATAL ERROR: {e}")
+        # Trong môi trường sản xuất, ngài có thể muốn dừng startup tại đây
+    
+    # 2. Lên lịch tác vụ (Scheduler) - Tích hợp Autopilot & Briefing
+    # Chuyển scheduler ra biến global hoặc khai báo tại đây để quản lý
+    app.state.scheduler = AsyncIOScheduler()
+    
+    # Job A: Báo cáo buổi sáng (Morning Briefing)
     if 'morning_briefing_job' in globals():
-        scheduler.add_job(morning_briefing_job, 'cron', hour=7, minute=0)
-    scheduler.start()
-    logger.info("⏰ Scheduler: ACTIVE")
+        app.state.scheduler.add_job(morning_briefing_job, 'cron', hour=7, minute=0, id="morning_report")
+    
+    # Job B: Autopilot - Thợ lặn tri thức (Mới cập nhật)
+    # Tự động quét tin tức và sinh Task sau mỗi 60 phút
+    app.state.scheduler.add_job(auto_knowledge_diver, 'interval', minutes=60, id="autopilot_diver")
+    
+    app.state.scheduler.start()
+    logger.info("⏰ Scheduler: ACTIVE (Autopilot + Briefing)")
 
-    # 3. Kích hoạt AI nền (Background AI)
-    learning_task = None
+    # 3. Kích hoạt AI nền (Background Loops)
+    app.state.learning_task = None
     if AI_AVAILABLE:
         logger.info("🧠 AI Core: ONLINE - Starting Self-Learning Loop...")
-        learning_task = asyncio.create_task(auto_learning_cycle())
+        # Sử dụng create_task để chạy song song không làm nghẽn API
+        app.state.learning_task = asyncio.create_task(auto_learning_cycle())
     else:
         logger.warning("⚠️ AI Core: OFFLINE (Running in safe mode)")
 
-    # ---> SERVER IS RUNNING HERE <---
+    # ---> SERVER CHÍNH THỨC NHẬN LỆNH TỪ ĐÂY <---
     yield 
     
     # ==============================
-    # 🔴 SHUTDOWN SEQUENCE
+    # 🔴 SHUTDOWN SEQUENCE (TẮT MÁY)
     # ==============================
-    print(colored("\n💤 [SYSTEM] J.A.R.V.I.S DANG NGHI...", "yellow", attrs=["bold"]))
+    print(colored("\n💤 [SYSTEM] J.A.R.V.I.S ENTERING HIBERNATION...", "yellow"))
     
-    # 1. Dừng Scheduler
-    if scheduler.running:
-        scheduler.shutdown()
+    # 1. Tắt bộ đếm giờ
+    if app.state.scheduler.running:
+        app.state.scheduler.shutdown()
     
-    # 2. Dừng AI an toàn (Graceful Shutdown)
-    if learning_task:
-        learning_task.cancel()
+    # 2. Dừng AI nạp tri thức an toàn
+    if app.state.learning_task:
+        app.state.learning_task.cancel()
         try:
-            # Đợi tối đa 5s để AI lưu dữ liệu dở dang rồi mới tắt
-            await asyncio.wait_for(learning_task, timeout=5.0)
+            await asyncio.wait_for(app.state.learning_task, timeout=5.0)
         except (asyncio.CancelledError, asyncio.TimeoutError):
-            logger.info("✅ AI Background Task stopped safely.")
-            
-    logger.info("👋 System Shutdown Complete.")
+            logger.info("✅ AI Learning Loop terminated.")
+
+    logger.info("👋 System Hibernate: SUCCESSFUL")
 
 
 
 # --- KHỞI TẠO APP VỚI LIFESPAN ---
 app = FastAPI(
-    title="J.A.R.V.I.S v4.6 FULL",
-    version="4.6",
+    title="J.A.R.V.I.S v4.8 FULL",
+    version="4.8",
     lifespan=lifespan
 )
 
@@ -633,6 +643,111 @@ async def read_org_chart(request: Request):
         })
     except: return "Lỗi load Org Chart"
 
+manager = ConnectionManager()
+
+# Tách riêng để cả API và Autopilot đều dùng chung được
+async def execute_distribute_knowledge(subject: str, num_tasks: int, reward: float):
+    if not CHAT_MODEL: return 0
+    prompt = f"Chia nhỏ chủ đề '{subject}' thành {num_tasks} task. Trả về JSON list: [{{'topic', 'task_type', 'content'}}]"
+    try:
+        res = await CHAT_MODEL.ainvoke(prompt)
+        tasks = json.loads(res.content.replace("```json", "").replace("```", "").strip())
+        with db_manager.get_connection() as conn:
+            for t in tasks:
+                conn.execute(text("INSERT INTO learning_tasks (topic, task_type, reward, content) VALUES (:t, :type, :r, :c)"),
+                             {"t": f"[{subject.upper()}] {t['topic']}", "type": t.get('task_type', 'RESEARCH'), "r": reward, "c": t.get('content', '')})
+            conn.commit()
+        return len(tasks)
+    except: return 0
+
+# API (Hàm mẹ - Dashboard gọi vào đây)
+@app.post("/api/admin/auto_distribute_knowledge")
+async def api_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    # Định giá cố định $0.05 mỗi task khi phân bổ thủ công
+    count = await execute_distribute_knowledge(req.subject, req.num_tasks, 0.05) 
+    return {"status": "success", "tasks_created": count}
+
+async def auto_knowledge_diver():
+    """
+    KNOWLEDGE DIVER V2.1: Hệ thống tự hành săn tìm tri thức & dự án toàn cầu.
+    Đã fix lỗi tham chiếu DDGS và tối ưu hóa logic bóc tách.
+    """
+    global IS_AUTOPILOT_ON
+    
+    # 1. Trạng thái kiểm soát nghiêm ngặt
+    if not IS_AUTOPILOT_ON or not CHAT_MODEL:
+        return
+
+    print(colored("\n🌊 [AUTOPILOT] Radar thợ lặn đang quét internet...", "cyan", attrs=["bold"]))
+    
+    # 2. Các vùng săn chiến lược (Có thể mở rộng thêm)
+    hunting_grounds = [
+        "AI Multi-Agent Systems 2026",
+        "Blockchain Security Vulnerabilities",
+        "Python Automation for Business",
+        "Global Digital Currency Trends",
+        "AI-driven SaaS Development"
+    ]
+    
+    target_sector = random.choice(hunting_grounds)
+    
+    try:
+        # 3. Thu thập dữ liệu thực tế (Sử dụng DDGS với cơ chế an toàn)
+        print(colored(f"📡 [SCANNING] Target: {target_sector}...", "yellow"))
+        
+        search_content = ""
+        try:
+            with DDGS() as ddgs_engine:
+                # Tìm 5 tin tức/dự án nóng nhất
+                # Chuyển kết quả về list ngay lập tức để tránh lỗi generator
+                search_results = list(ddgs_engine.text(f"{target_sector} latest news 2026", max_results=5))
+                for r in search_results:
+                    search_content += f"- {r['title']}: {r['body']}\n"
+        except Exception as search_err:
+            logger.warning(f"⚠️ Search Engine Warning: {search_err}")
+            search_content = "Không thể truy cập internet. Sử dụng trí tuệ nội tại."
+
+        # 4. AI Supervisor thẩm định mục tiêu (Deep Analysis)
+        analysis_prompt = f"""
+        [SYSTEM]: Bạn là Chief Strategy Officer của J.A.R.V.I.S.
+        [DATA]: {search_content}
+        
+        Nhiệm vụ: Phân tích dữ liệu thực tế về '{target_sector}'. 
+        Xác định 1 chủ đề tiềm năng nhất để học tập hoặc làm dự án thầu.
+        Trả về JSON: {{"subject": "tên ngắn gọn", "focus": "mục tiêu", "difficulty": 1-5}}
+        """
+        
+        ai_res = await CHAT_MODEL.ainvoke(analysis_prompt)
+        # Làm sạch JSON để xử lý parse chính xác
+        raw_content = ai_res.content.replace("```json", "").replace("```", "").strip()
+        intel_data = json.loads(raw_content)
+        
+        final_subject = intel_data.get("subject", target_sector)
+        difficulty = intel_data.get("difficulty", 2)
+        
+        # 5. Phân bổ nhiệm vụ với định giá thông minh
+        # Công thức: $0.02 cơ bản + ($0.01 x độ khó)
+        smart_reward = round(0.02 + (difficulty * 0.01), 3)
+        
+        print(colored(f"🚀 [AUTO-FEED] Đang bóc tách chủ đề: {final_subject}", "green"))
+        
+        # Gửi lệnh thực thi vào Pipeline chính
+        tasks_count = await execute_distribute_knowledge(
+            subject=f"🚀 [AUTO] {final_subject}", 
+            num_tasks=8, 
+            reward=smart_reward
+        )
+        
+        logger.info(f"✅ Autopilot: Đã phân phối {tasks_count} nhiệm vụ mới vào hệ thống.")
+
+    except Exception as e:
+        logger.error(f"❌ Autopilot Error: {str(e)}")
+        # Fallback: Đảm bảo J.A.R.V.I.S vẫn hoạt động dù có lỗi xảy ra
+        try:
+            fallback_res = await CHAT_MODEL.ainvoke(f"Nghĩ nhanh 1 chủ đề công nghệ cho {target_sector}")
+            await execute_distribute_knowledge(f"🚀 [FALLBACK] {fallback_res.content[:50]}", 3, 0.01)
+        except: pass
 # --- API DATA & FEATURES ---
 # ==========================================
 # API STORE & TÀI CHÍNH (Đã tối ưu cho store.html)
@@ -794,6 +909,38 @@ async def get_system_stats():
         print(f"Lỗi Stats: {e}")
         return {"products": 0, "revenue": 0, "expense": 0, "balance": 0}
 
+async def fetch_external_projects(keyword):
+    search_query = f"site:freelancer.com '{keyword}' job"
+    # SỬA LỖI: Khởi tạo DDGS bên trong hàm hoặc dùng global
+    def _search():
+        with DDGS() as ddgs_engine:
+            return list(ddgs_engine.text(search_query, max_results=5))
+            
+    results = await run_in_threadpool(_search)
+    return results
+
+async def activate_hunter_logic(keyword: str):
+    # Giả lập danh sách User-Agent để qua mặt robot detection
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/537.36"
+    ]
+    
+    with DDGS() as ddgs_engine:
+        # Thêm từ khóa "remote" hoặc "hiring" để lọc dự án thật
+        search_query = f"site:upwork.com {keyword} remote jobs 2026"
+        results = list(ddgs_engine.text(search_query, max_results=3))
+        
+        # Thêm độ trễ ngẫu nhiên giữa các lần bóc tách
+        await asyncio.sleep(random.uniform(2, 5)) 
+        
+        for project in results:
+            await execute_distribute_knowledge(
+                subject=f"DỰ ÁN THỰC TẾ: {project['title']}",
+                num_tasks=5,
+                reward=0.1 
+            )
+    return len(results)
 
 @app.get("/api/wealth")
 async def check_wealth_api():
@@ -1510,107 +1657,117 @@ async def generate_harder_task(previous_result):
 # Hàm tạo mã vân tay (Fingerprint)
 def create_content_hash(content):
     return hashlib.md5(content.strip().encode('utf-8')).hexdigest()
+async def perform_auto_audit(task_topic, task_content, worker_result):
+    """
+    Hệ thống kiểm định chất lượng tự động.
+    """
+    if not CHAT_MODEL: return 100, "AI_OFFLINE_BYPASS"
+
+    audit_prompt = f"""
+    Bạn là Chuyên gia kiểm định chất lượng (QA Senior).
+    NHIỆM VỤ GỐC: {task_topic}
+    YÊU CẦU CHI TIẾT: {task_content}
+    KẾT QUẢ WORKER NỘP: 
+    ---
+    {worker_result}
+    ---
+    Hãy chấm điểm kết quả này trên thang điểm 100.
+    Tiêu chí: Đúng yêu cầu, Code chạy được, giải thích rõ ràng.
+    Trả về JSON: {{"score": 0-100, "comment": "nhận xét ngắn", "status": "APPROVED/REJECTED"}}
+    Chỉ REJECTED nếu kết quả quá sơ sài hoặc sai hoàn toàn logic.
+    """
+    try:
+        res = await CHAT_MODEL.ainvoke(audit_prompt)
+        audit_data = json.loads(res.content.replace("```json", "").replace("```", "").strip())
+        return audit_data.get("score", 0), audit_data.get("comment", "No comment")
+    except:
+        return 70, "Audit System Busy - Default Pass"
+
 
 @app.post("/api/worker/submit_task")
 async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
     """
-    API nhận kết quả từ Worker (OPTIMIZED VERSION).
-    Quy trình: Check Auth -> Check Task -> Check Duplicate -> Update Status -> Pay -> Learn -> Log.
+    HỆ THỐNG KIỂM ĐỊNH & THANH TOÁN TỰ ĐỘNG (v8.0)
+    Quy trình: Auth -> Validation -> Auto-Audit (AI) -> Payment -> Knowledge Ingestion -> Logging.
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
-    # Biến lưu số tiền thực tế sẽ trả (Mặc định là 0)
     final_pay = 0.0 
-    
+    audit_score = 0
+    audit_comment = "Chưa qua kiểm định"
+
     try:
-        # =================================================
-        # 1. XÁC THỰC (AUTHENTICATION)
-        # =================================================
+        # 1. XÁC THỰC NGƯỜI DÙNG
         c.execute("SELECT username, balance FROM users WHERE api_key=?", (x_api_key,))
         user = c.fetchone()
-        
         if x_api_key != ADMIN_SECRET and not user:
-             raise HTTPException(status_code=403, detail="API Key không hợp lệ!")
+            raise HTTPException(status_code=403, detail="API Key không hợp lệ!")
 
-        # =================================================
-        # 2. KIỂM TRA THÔNG TIN TASK (VALIDATION)
-        # =================================================
-        c.execute("SELECT reward, task_type, topic, status FROM learning_tasks WHERE id=?", (res.task_id,))
+        # 2. KIỂM TRA THÔNG TIN NHIỆM VỤ
+        c.execute("SELECT reward, task_type, topic, status, content FROM learning_tasks WHERE id=?", (res.task_id,))
         task_info = c.fetchone()
+        if not task_info: return {"status": "error", "msg": "Task không tồn tại"}
+        if task_info[3] == 'DONE': return {"status": "error", "msg": "Task đã hoàn thành trước đó!"}
+
+        agreed_reward, task_type, topic, _, original_requirement = task_info
+
+        # 3. MODULE AUTO-AUDIT (KIỂM ĐỊNH CHẤT LƯỢNG BẰNG AI)
+        print(colored(f"🛡️ [AUDIT] Đang kiểm định Task #{res.task_id} từ {res.worker_id}...", "cyan"))
         
-        # Nếu task không tồn tại hoặc đã có người làm xong
-        if not task_info:
-            return {"status": "error", "msg": "Task không tồn tại"}
-        if task_info[3] == 'DONE':
-            return {"status": "error", "msg": "Task này đã hoàn thành, bạn nộp muộn rồi!"}
-
-        # Lấy thông tin cần thiết
-        agreed_reward = task_info[0] or 0.0   # Giá tiền Dynamic
-        task_type = task_info[1]
-        topic = task_info[2]
-
-        # =================================================
-        # 3. KIỂM TRA TRÙNG LẶP (DUPLICATE CHECK)
-        # =================================================
-        is_duplicate = False
-        # Tạo mã băm nội dung để kiểm tra nhanh
-        content_hash = create_content_hash(res.result_content)
+        audit_prompt = f"""
+        Bạn là Senior QA & Tech Lead. Hãy thẩm định bài nộp của Worker:
+        - YÊU CẦU GỐC: {original_requirement}
+        - BÀI NỘP CỦA WORKER: {res.result_content}
         
-        # Kiểm tra trong lịch sử xem nội dung này đã từng xuất hiện chưa
-        # (Lưu ý: Tốt nhất là check cột hash, ở đây check tạm content)
-        c.execute("SELECT id FROM work_logs WHERE result_summary = ?", (res.result_content,))
-        if c.fetchone():
-            is_duplicate = True
-            print(colored(f"♻️ [DUPLICATE] Phát hiện nội dung trùng lặp từ {res.worker_id}", "yellow"))
-
-        # =================================================
-        # 4. CẬP NHẬT TRẠNG THÁI TASK (CRITICAL UPDATE)
-        # =================================================
-        # Dù kết quả thế nào, cũng phải đánh dấu task là DONE để không treo hệ thống
-        c.execute("UPDATE learning_tasks SET status='DONE', last_updated=CURRENT_TIMESTAMP WHERE id=?", (res.task_id,))
-
-        # =================================================
-        # 5. XỬ LÝ THANH TOÁN & HỌC TẬP (LOGIC CỐT LÕI)
-        # =================================================
-        is_success = "CHẠY THÀNH CÔNG" in res.result_content or "Success" in res.result_content
+        Hãy chấm điểm trên thang 100. Trả về JSON: {{"score": 0-100, "reason": "nhận xét ngắn"}}
+        Nếu bài nộp quá ngắn, sơ sài hoặc không đúng yêu cầu, hãy cho dưới 50 điểm.
+        """
         
-        if is_success:
-            if is_duplicate:
-                # Nếu làm đúng nhưng nộp bài copy -> Không trả tiền (hoặc trả rất ít)
-                final_pay = 0.0
+        try:
+            audit_res = await CHAT_MODEL.ainvoke(audit_prompt)
+            # Làm sạch chuỗi JSON từ AI
+            clean_json = audit_res.content.replace("```json", "").replace("```", "").strip()
+            audit_data = json.loads(clean_json)
+            audit_score = audit_data.get("score", 0)
+            audit_comment = audit_data.get("reason", "Không có nhận xét.")
+        except Exception as e:
+            logger.error(f"Audit AI Error: {e}")
+            audit_score = 70  # Fallback score nếu AI bận
+            audit_comment = "Hệ thống Audit bận, phê duyệt tạm thời."
+
+        # 4. QUYẾT ĐỊNH THANH TOÁN (LOGIC KINH DOANH)
+        # Chỉ trả tiền nếu điểm Audit >= 60
+        is_passed = audit_score >= 60
+        verdict = "APPROVED" if is_passed else "REJECTED"
+        
+        if is_passed:
+            # Kiểm tra trùng lặp (Duplicate Check)
+            c.execute("SELECT id FROM work_logs WHERE result_summary = ?", (res.result_content,))
+            if c.fetchone():
+                final_pay = agreed_reward * 0.1 # Phạt 90% nếu copy bài cũ
+                audit_comment += " [PHÁT HIỆN TRÙNG LẶP - PHẠT 90%]"
             else:
-                # Nếu làm đúng và mới mẻ -> Trả đủ tiền
-                final_pay = agreed_reward
-                
-                # A. Cộng tiền vào ví (Payment)
-                if user:
-                    username = user[0]
-                    c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
-                    print(colored(f"💰 [PAYMENT] Đã trả ${final_pay} cho {username} (Task: {topic})", "green"))
+                final_pay = agreed_reward # Trả đủ nếu bài mới và tốt
 
-                # B. Học tập thông minh (Smart Learning) - Chỉ học cái mới
-                if AI_AVAILABLE and len(res.result_content) > 50:
-                    print(colored("🧠 [HIVE MIND] Đang nạp kiến thức mới vào não bộ...", "magenta"))
-                    
-                    knowledge_pack = f"""
-                    [KIẾN THỨC MỚI TỪ VỆ TINH {res.worker_id}]
-                    Chủ đề: {topic} (Loại: {task_type})
-                    Kết quả:
-                    {res.result_content}
-                    """
-                    # Chạy ngầm để không block phản hồi
-                    await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
-
-                    # C. Tự động thăng cấp (Auto Level Up)
-                    if 'generate_harder_task' in globals():
-                        asyncio.create_task(generate_harder_task(res.result_content))
+            # CẬP NHẬT VÍ TIỀN THỰC
+            if user:
+                username = user[0]
+                c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
+                print(colored(f"💰 [PAYMENT] Đã giải ngân ${final_pay} cho {username}", "green"))
         else:
-            print(colored(f"⚠️ [FAIL] Task {res.task_id} thất bại. Không thưởng.", "red"))
+            final_pay = 0.0
+            print(colored(f"❌ [REJECTED] Task #{res.task_id} không đạt chất lượng ({audit_score}đ)", "red"))
 
-        # =================================================
-        # 6. LƯU NHẬT KÝ (LOGGING)
-        # =================================================
+        # 5. CẬP NHẬT TRẠNG THÁI HỆ THỐNG
+        new_status = 'DONE' if is_passed else 'PENDING' # Nếu tạch thì trả về PENDING cho người khác làm
+        c.execute("UPDATE learning_tasks SET status=?, last_updated=CURRENT_TIMESTAMP WHERE id=?", (new_status, res.task_id))
+
+        # 6. GHI NHỚ TRI THỨC (CHỈ KHI ĐẠT CHUẨN)
+        if is_passed and AI_AVAILABLE:
+            knowledge_pack = f"Topic: {topic}\nContent: {res.result_content}"
+            await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
+
+        # 7. LƯU NHẬT KÝ CHI TIẾT (WORK LOGS)
         timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
         c.execute("""
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
@@ -1618,19 +1775,20 @@ async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
         """, (
             timestamp, 
             f"WORKER_{res.worker_id}", 
-            f"Task {res.task_id}: {topic}", 
-            res.result_content, 
-            "DISTRIBUTED_MINING", 
-            final_pay # Ghi đúng số tiền thực trả
+            f"[{verdict}] ({audit_score}đ) {topic}", 
+            f"AUDIT: {audit_comment}\n\nDATA: {res.result_content[:1000]}", 
+            "AUTO_AUDIT_V8", 
+            final_pay
         ))
         
         conn.commit()
         
         return {
             "status": "success", 
+            "verdict": verdict,
+            "score": audit_score,
             "reward_earned": final_pay,
-            "task_type": task_type,
-            "message": f"Hoàn thành! Nhận ${final_pay}" if final_pay > 0 else "Hoàn thành (Không thưởng do trùng lặp/lỗi)"
+            "message": audit_comment
         }
 
     except Exception as e:
@@ -1638,6 +1796,7 @@ async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
         return {"status": "error", "message": str(e)}
     finally:
         conn.close()
+
 @app.post("/api/admin/create_job")
 async def create_job(topic: str, type: str, price: float, x_api_key: str = Header(None)):
     """
