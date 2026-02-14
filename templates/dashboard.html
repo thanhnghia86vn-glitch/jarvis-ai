@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S - SUPREME COMMAND CENTER v7.1</title>
+    <title>J.A.R.V.I.S - SUPREME COMMAND CENTER v7.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -14,7 +14,6 @@
         .font-orbitron { font-family: 'Orbitron', sans-serif; }
         .glass-panel { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(15px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; }
         
-        /* REACTOR CORE */
         .jarvis-reactor {
             width: 80px; height: 80px; border-radius: 50%;
             background: radial-gradient(circle, #0ea5e9 0%, #020617 70%);
@@ -27,8 +26,12 @@
         @keyframes breathe { 0%, 100% { box-shadow: 0 0 15px #0ea5e9; transform: scale(0.98); } 50% { box-shadow: 0 0 35px #0ea5e9; transform: scale(1.02); } }
         @keyframes spin { 100% { transform: rotate(360deg); } }
         
-        .custom-scroll::-webkit-scrollbar { width: 3px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #0ea5e9; }
+        /* THANH TRƯỢT TÙY CHỈNH CHUYÊN NGHIỆP */
+        .custom-scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0ea5e9 #020617; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #020617; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #0ea5e9; border-radius: 10px; box-shadow: 0 0 5px #0ea5e9; }
+        
         .mic-active { background-color: #ef4444 !important; animation: pulse-red 1.5s infinite; color: white !important; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
     </style>
@@ -41,7 +44,7 @@
             <div class="flex items-center gap-4">
                 <div class="jarvis-reactor scale-75"> <div class="reactor-core"></div> </div>
                 <div>
-                    <h1 class="font-orbitron text-lg font-bold tracking-widest text-white">J.A.R.V.I.S <span class="text-blue-500 text-sm">GLOBAL_OPS_v7.1</span></h1>
+                    <h1 class="font-orbitron text-lg font-bold tracking-widest text-white">J.A.R.V.I.S <span class="text-blue-500 text-sm">GLOBAL_OPS_v7.2</span></h1>
                     <div id="location-tag" class="text-[8px] text-blue-400 font-mono tracking-widest uppercase animate-pulse">Location: Synchronizing...</div>
                 </div>
             </div>
@@ -49,10 +52,10 @@
         </header>
 
         <main class="flex flex-1 gap-4 overflow-hidden">
-            <div class="w-1/4 flex flex-col gap-4">
+            <div class="w-1/4 flex flex-col gap-3 h-full">
                 <div class="glass-panel p-4 border-t-2 border-blue-500">
                     <h3 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-brain"></i> Supervisor</h3>
-                    <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-blue-500" placeholder="Chủ đề bài học quốc tế...">
+                    <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-blue-500" placeholder="Chủ đề bài học...">
                     <div class="flex gap-2">
                         <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1"><option value="5">05 Tasks</option><option value="15" selected>15 Tasks</option></select>
                         <button onclick="distributeKnowledge()" id="btnDistribute" class="bg-blue-600 hover:bg-blue-500 text-[9px] font-bold px-3 py-1 rounded transition-all">PHÂN BỔ</button>
@@ -61,69 +64,67 @@
 
                 <div class="glass-panel p-4 border-t-2 border-red-500 bg-red-950/10">
                     <h3 class="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-crosshairs"></i> Project Hunter</h3>
-                    <input type="text" id="hunterKeyword" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-red-500" placeholder="Săn dự án (Scraper, Bot, Web...)">
+                    <input type="text" id="hunterKeyword" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-red-500" placeholder="Từ khóa săn dự án...">
                     <button onclick="activateHunter()" id="btnHunter" class="w-full bg-red-600 hover:bg-red-700 text-[9px] font-bold py-2 rounded transition-all">QUÉT RADAR QUỐC TẾ</button>
-                    <div id="hunterStatus" class="text-[8px] text-slate-500 mt-2 italic font-mono">Radar Status: Idle</div>
+                    <div id="hunterStatus" class="text-[8px] text-slate-500 mt-2 italic font-mono uppercase">Radar: Idle</div>
                 </div>
 
                 <div class="glass-panel p-4 border-l-4 border-cyan-500 bg-cyan-950/5">
                     <h3 class="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i class="fas fa-rocket"></i> Mega Pipeline</h3>
-                    <button onclick="startFullProject()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-[9px] font-bold py-2 rounded shadow-lg shadow-cyan-900/20">KHỞI TẠO SIÊU DỰ ÁN</button>
+                    <button onclick="startFullProject()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-[9px] font-bold py-2 rounded shadow-lg">KHỞI TẠO SIÊU DỰ ÁN</button>
                 </div>
 
                 <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden border-t-2 border-orange-500">
                     <h3 class="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">Satellite Nodes (<span id="worker-count">0</span>)</h3>
-                    <div id="worker-list" class="flex-1 custom-scroll space-y-2"></div>
+                    <div id="worker-list" class="flex-1 custom-scroll space-y-2 pr-1"></div>
                 </div>
             </div>
 
-            <div class="w-1/2 flex flex-col gap-4">
+            <div class="w-1/2 flex flex-col gap-4 h-full">
                 <div class="glass-panel flex-1 flex flex-col p-4 overflow-hidden border-b-2 border-blue-500/30">
-                    <div id="chat-box" class="flex-1 custom-scroll space-y-4 pr-2 font-mono text-sm"></div>
+                    <div id="chat-box" class="flex-1 custom-scroll space-y-4 pr-2 font-mono text-sm mb-2"></div>
                     
                     <div id="visualizer" class="h-6 flex items-end gap-1 opacity-0 mb-2 transition-opacity">
                         <div class="w-1 bg-blue-400 animate-bounce h-2"></div>
+                        <div class="w-1 bg-blue-500 animate-bounce h-4"></div>
                         <div class="w-1 bg-blue-300 animate-bounce h-5"></div>
-                        <div class="w-1 bg-blue-500 animate-bounce h-3"></div>
-                        <div class="w-1 bg-blue-300 animate-bounce h-5"></div>
-                        <div class="w-1 bg-blue-400 animate-bounce h-2"></div>
                     </div>
 
-                    <div class="flex gap-2">
-                        <button id="mic-btn" class="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 text-blue-400 flex items-center justify-center transition-all hover:bg-slate-700"><i class="fas fa-microphone"></i></button>
-                        <input type="text" id="user-input" class="flex-1 bg-slate-900 border border-slate-700 rounded-full px-6 text-xs text-white outline-none focus:border-blue-500" placeholder="Nhập lệnh điều hành...">
-                        <button id="send-btn" class="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all"><i class="fas fa-paper-plane"></i></button>
+                    <div class="flex gap-2 p-2 bg-slate-900/50 rounded-full border border-slate-800">
+                        <button id="mic-btn" class="w-10 h-10 rounded-full bg-slate-800 text-blue-400 flex items-center justify-center transition-all hover:bg-slate-700"><i class="fas fa-microphone"></i></button>
+                        <input type="text" id="user-input" class="flex-1 bg-transparent px-4 text-xs text-white outline-none" placeholder="Nhập lệnh điều hành...">
+                        <button id="send-btn" class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all"><i class="fas fa-paper-plane"></i></button>
                     </div>
                 </div>
             </div>
 
-            <div class="w-1/4 flex flex-col gap-4">
+            <div class="w-1/4 flex flex-col gap-4 h-full">
                 <div class="grid grid-cols-2 gap-2">
-                    <div class="glass-panel p-3 border-l-4 border-green-500 text-center">
+                    <div class="glass-panel p-3 border-l-4 border-green-500 text-center shadow-inner">
                         <p class="text-[8px] text-slate-500 uppercase font-bold">Revenue</p>
                         <p id="total-cost" class="text-sm font-bold text-white font-orbitron">$0.0000</p>
                     </div>
-                    <div class="glass-panel p-3 border-l-4 border-purple-500 text-center">
+                    <div class="glass-panel p-3 border-l-4 border-purple-500 text-center shadow-inner">
                         <p class="text-[8px] text-slate-500 uppercase font-bold">Brain DNA</p>
                         <p id="legacy-count" class="text-sm font-bold text-white font-orbitron">0</p>
                     </div>
                 </div>
-                <div class="glass-panel p-2 h-40 border-t-2 border-emerald-500"><canvas id="growthChart"></canvas></div>
+                <div class="glass-panel p-2 h-40 border-t-2 border-emerald-500 shadow-inner"><canvas id="growthChart"></canvas></div>
                 <div class="glass-panel flex-1 flex flex-col overflow-hidden">
-                    <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-blue-300">Activity Log</div>
+                    <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center text-[10px] font-bold uppercase text-blue-300">Activity Log</div>
                     <div id="audit-table-body" class="flex-1 custom-scroll text-[9px] p-2 space-y-2 font-mono"></div>
                 </div>
             </div>
         </main>
     </div>
 
-    <div id="detailModal" class="hidden fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-8 backdrop-blur-xl">
+    <div id="detailModal" class="hidden fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-8 backdrop-blur-xl">
         <div class="bg-slate-900 border border-blue-500/30 w-full max-w-5xl h-[85vh] rounded-xl flex flex-col overflow-hidden shadow-2xl">
             <div class="p-4 border-b border-slate-800 flex justify-between items-center text-blue-400 font-orbitron uppercase">
                 <span>Insight_Decryption</span>
                 <button onclick="document.getElementById('detailModal').classList.add('hidden')" class="text-3xl font-light hover:text-red-500 transition-all">&times;</button>
             </div>
-            <div id="modal-content" class="p-10 custom-scroll text-sm text-slate-300 font-sans"></div>
+            <div id="modal-content" class="p-10 custom-scroll text-sm text-slate-300 font-sans leading-relaxed"></div>
         </div>
     </div>
 
@@ -132,13 +133,10 @@
         const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/nexus`);
         let logsData = [];
 
-        // 1. DYNAMIC SYSTEM CONTEXT
+        // 1. UPDATE TIME & LOCATION
         function updateLocation() {
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('vi-VN');
-            const dateStr = now.toLocaleDateString('vi-VN');
-            // Tự động chuyển vùng sang Global
-            document.getElementById('location-tag').innerText = `Time: ${timeStr} ${dateStr} | Mode: GLOBAL OPERATIONS`;
+            document.getElementById('location-tag').innerText = `Time: ${now.toLocaleTimeString('vi-VN')} ${now.toLocaleDateString('vi-VN')} | Mode: GLOBAL_NET`;
         }
         setInterval(updateLocation, 1000);
 
@@ -149,7 +147,7 @@
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b', font: { size: 7 } } } } }
         });
 
-        // 3. VOICE ENGINE (gTTS)
+        // 3. VOICE ENGINE
         async function playVoice(text) {
             try {
                 const res = await fetch('/api/tts', {
@@ -161,15 +159,14 @@
                     const blob = await res.blob();
                     new Audio(URL.createObjectURL(blob)).play();
                 }
-            } catch (e) { console.error("Voice Engine Failed"); }
+            } catch (e) { console.error("TTS_FAIL"); }
         }
 
-        // 4. MISSION FUNCTIONS
+        // 4. CORE FUNCTIONS
         async function distributeKnowledge() {
             const subject = document.getElementById('subjectInput').value;
             const num = document.getElementById('taskNumInput').value;
             if(!subject) return;
-            document.getElementById('btnDistribute').innerText = "THINKING...";
             const res = await fetch('/api/admin/auto_distribute_knowledge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
@@ -177,11 +174,10 @@
             });
             const d = await res.json();
             if(d.status==='success') {
-                addChat("AI", `Giám sát viên đã phân phối chủ đề **${subject}** thành ${d.tasks_created} mẩu tri thức.`);
+                addChat("AI", `Đã phân rã chủ đề **${subject}**.`);
                 document.getElementById('subjectInput').value = '';
                 fetchData();
             }
-            document.getElementById('btnDistribute').innerText = "PHÂN BỔ";
         }
 
         async function activateHunter() {
@@ -189,24 +185,27 @@
             const status = document.getElementById('hunterStatus');
             const btn = document.getElementById('btnHunter');
             if(!kw) return;
-            btn.innerText = "RADAR SCANNING...";
-            status.innerHTML = '<span class="text-red-400 animate-pulse">📡 SCANNING GLOBAL FREELANCE...</span>';
-            const res = await fetch('/api/admin/start_hunting', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
-                body: JSON.stringify({ keyword: kw })
-            });
-            const d = await res.json();
-            status.innerHTML = `<span class="text-green-500">✅ HARVESTED ${d.projects_hunted} NODES</span>`;
-            addChat("AI", `Radar Project Hunter đã quét thấy dự án mới về **${kw}** và đang bóc tách cho Worker.`);
-            btn.innerText = "QUÉT RADAR QUỐC TẾ";
-            fetchData();
+            
+            btn.innerText = "SCANNING...";
+            status.innerHTML = '<span class="text-red-400 animate-pulse">📡 RADAR SCANNING GLOBAL...</span>';
+            
+            try {
+                const res = await fetch('/api/admin/start_hunting', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
+                    body: JSON.stringify({ keyword: kw })
+                });
+                const d = await res.json();
+                status.innerHTML = `<span class="text-green-500">✅ HARVESTED ${d.projects_hunted} NODES</span>`;
+                addChat("AI", `Radar Hunter đã tìm thấy dữ liệu về **${kw}**.`);
+                fetchData();
+            } catch (e) { status.innerText = "Radar Fail"; }
+            finally { btn.innerText = "QUÉT RADAR QUỐC TẾ"; }
         }
 
         async function startFullProject() {
-            const req = prompt("Mục tiêu phần mềm tối cao (Blueprint Builder):");
+            const req = prompt("Tên siêu dự án:");
             if(!req) return;
-            addChat("AI", `Đang khởi động Pipeline: **${req}**. Tôi đang vẽ bản thiết kế kiến trúc...`);
             fetch('/api/plan_project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
@@ -214,7 +213,7 @@
             });
         }
 
-        // 5. DATA SYNC
+        // 5. DATA SYNC (FIXED MODAL CLICK)
         async function fetchData() {
             try {
                 const [resLogs, resWealth, resWorkers] = await Promise.all([
@@ -226,36 +225,36 @@
 
                 logsData = logs;
                 document.getElementById('audit-table-body').innerHTML = logs.map((item, idx) => `
-                    <div onclick="showDetail(${idx})" class="bg-slate-900/50 p-2 rounded border border-slate-800 hover:border-blue-500/50 cursor-pointer transition-all">
-                        <div class="flex justify-between text-[7px] text-slate-500 mb-1"><span>${item.timestamp}</span><span class="text-green-500">$${(item.cost_usd || item.cost || 0).toFixed(4)}</span></div>
-                        <div class="text-[8px] font-bold text-slate-300 uppercase">${item.agent || item.agent_name}</div>
-                        <div class="truncate text-slate-400 text-[8px]">${item.task || item.task_content}</div>
+                    <div onclick="showDetail(${idx})" class="bg-slate-900/60 p-2 rounded border border-slate-800 hover:border-blue-500/50 cursor-pointer transition-all active:scale-[0.98]">
+                        <div class="flex justify-between text-[7px] text-slate-500 mb-1 pointer-events-none"><span>${item.timestamp}</span><span class="text-green-500">$${(item.cost_usd || item.cost || 0).toFixed(4)}</span></div>
+                        <div class="text-[8px] font-bold text-slate-300 uppercase pointer-events-none">${item.agent || item.agent_name}</div>
+                        <div class="truncate text-slate-400 text-[8px] pointer-events-none">${item.task || item.task_content}</div>
                     </div>`).join('');
 
                 if(wealth.financial_report) {
                     const cost = wealth.financial_report.total_cost_usd;
                     document.getElementById('total-cost').innerText = `$${cost.toFixed(4)}`;
-                    document.getElementById('legacy-count').innerText = wealth.intellectual_assets.HIGH_QUALITY_SYNTHESIS + wealth.intellectual_assets.LEGENDARY_MASTER_PLANS;
+                    document.getElementById('legacy-count').innerText = wealth.intellectual_assets.HIGH_QUALITY_SYNTHESIS;
                     growthChart.data.labels.push(""); growthChart.data.datasets[0].data.push(cost);
-                    if(growthChart.data.labels.length > 30) { growthChart.data.labels.shift(); growthChart.data.datasets[0].data.shift(); }
+                    if(growthChart.data.labels.length > 20) { growthChart.data.labels.shift(); growthChart.data.datasets[0].data.shift(); }
                     growthChart.update();
                 }
 
                 document.getElementById('worker-count').innerText = workers.length;
                 document.getElementById('worker-list').innerHTML = workers.map(w => `
-                    <div class="bg-blue-950/10 border border-slate-800 p-2 rounded flex items-center justify-between transition-all">
+                    <div class="bg-blue-950/10 border border-slate-800 p-2 rounded flex items-center justify-between">
                         <div class="flex items-center gap-2"><i class="fas fa-microchip text-orange-500 text-[9px] animate-pulse"></i><div><p class="text-[8px] font-bold text-slate-200">${w.worker_id}</p><p class="text-[6px] text-slate-500 truncate w-24">${w.current_task}</p></div></div>
-                        <span class="text-[6px] text-orange-400 font-bold border border-orange-900 px-1 rounded">WORKING</span>
+                        <span class="text-[6px] text-orange-400 font-bold border border-orange-900 px-1 rounded uppercase">Busy</span>
                     </div>`).join('');
-            } catch(e) { console.log("System Sync Outage"); }
+            } catch(e) {}
         }
 
-        // 6. TERMINAL LOGIC
+        // 6. CHAT & MODAL
         function addChat(role, text) {
             const div = document.createElement('div');
             div.className = role === 'AI' ? "bg-blue-900/10 border-l-2 border-blue-500 p-3 rounded" : "bg-slate-800/40 p-3 rounded ml-6 text-right";
-            div.innerHTML = `<span class="text-[7px] font-bold block mb-1 ${role === 'AI' ? 'text-blue-500' : 'text-green-500'} font-orbitron">${role === 'AI' ? 'JARVIS_CORE' : 'COMMANDER_SUPREME'}</span>
-                             <div class="text-xs text-slate-300 leading-relaxed">${marked.parse(text)}</div>`;
+            div.innerHTML = `<span class="text-[7px] font-bold block mb-1 ${role === 'AI' ? 'text-blue-500' : 'text-green-500'} font-orbitron">${role === 'AI' ? 'JARVIS_CORE' : 'CEO'}</span>
+                             <div class="text-xs text-slate-300">${marked.parse(text)}</div>`;
             document.getElementById('chat-box').appendChild(div);
             document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         }
@@ -271,16 +270,16 @@
             const i = document.getElementById('user-input');
             if(i.value) { addChat("USER", i.value); ws.send(i.value); i.value = ''; }
         };
-        document.getElementById('user-input').onkeypress = (e) => { if(e.key==='Enter') document.getElementById('send-btn').click(); };
 
         function showDetail(idx) {
             const item = logsData[idx];
+            if(!item) return;
             document.getElementById('modal-title').innerText = item.task || "Log Metadata";
-            document.getElementById('modal-content').innerHTML = marked.parse(item.result || item.result_summary || "NO_DATA");
+            document.getElementById('modal-content').innerHTML = marked.parse(item.result || item.result_summary || "NO_DATA_AVAILABLE");
             document.getElementById('detailModal').classList.remove('hidden');
         }
 
-        // 7. STT RECOGNITION
+        // 7. VOICE RECOGNITION
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if(Recognition) {
             const rec = new Recognition(); rec.lang = 'vi-VN';
