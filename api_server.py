@@ -13,6 +13,7 @@ import json
 import base64
 import asyncio
 import re
+import smtplib
 import zipfile
 import hashlib
 import requests
@@ -38,6 +39,10 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from main import set_system_busy
 from duckduckgo_search import DDGS
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from identity_core import jarvis_identity
+from marketing_ai import marketing_agent
 # [QUAN TRỌNG]: Đã thêm LLM_SUPERVISOR và log_training_data
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JARVIS_v4.5")
@@ -668,6 +673,22 @@ async def api_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(N
     count = await execute_distribute_knowledge(req.subject, req.num_tasks, 0.05) 
     return {"status": "success", "tasks_created": count}
 
+@app.post("/api/admin/auto_reply")
+async def api_auto_reply(customer_email: str, x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: 
+        raise HTTPException(status_code=403)
+
+    # Lấy mail mới nhất (giả sử dùng hàm đã có trong identity_core)
+    customer_msg = jarvis_identity.fetch_latest_otp(keyword="tư vấn") 
+
+    if not customer_msg:
+        return {"status": "error", "msg": "Không có thư mới để trả lời."}
+
+    # Gọi hàm từ module Marketing
+    success = await marketing_agent.smart_reply(customer_msg, customer_email)
+
+    return {"status": "success" if success else "error"}
+
 async def auto_knowledge_diver():
     """
     KNOWLEDGE DIVER V2.1: Hệ thống tự hành săn tìm tri thức & dự án toàn cầu.
@@ -1295,6 +1316,43 @@ async def upload_pdf(file: UploadFile = File(...)):
         if os.path.exists(file_path): os.remove(file_path)
         raise HTTPException(status_code=500, detail=str(e))
 
+# Endpoint để Dashboard hoặc Worker yêu cầu lấy mã xác nhận
+@app.get("/api/admin/check_otp")
+async def check_otp(keyword: str = "verification"):
+    # J.A.R.V.I.S tự gọi hàm lấy mã
+    code = jarvis_identity.fetch_latest_otp(keyword)
+    
+    if code:
+        return {"status": "success", "otp": code}
+    
+    return {"status": "error", "msg": "Đang chờ mã xác nhận gửi về..."}
+
+def send_jarvis_mail(to_email, subject, body):
+    # J.A.R.V.I.S sẽ tự lấy thông tin từ Cloud/Env mà ngài đã cấu hình
+    sender_email = os.getenv("MAIL_USERNAME")
+    app_password = os.getenv("MAIL_PASSWORD")
+
+    if not sender_email or not app_password:
+        print("❌ Lỗi: Chưa tìm thấy biến MAIL_USERNAME hoặc MAIL_PASSWORD trên Cloud.")
+        return False
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, app_password)
+
+        msg = MIMEMultipart()
+        msg['From'] = f"J.A.R.V.I.S System <{sender_email}>"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'html'))
+
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"❌ Lỗi thực thi gửi mail: {e}")
+        return False
 
 @app.post("/api/tts")
 async def text_to_speech_api(request: TTSRequest):
