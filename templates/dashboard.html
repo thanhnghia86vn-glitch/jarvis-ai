@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S - SUPREME COMMAND CENTER v7.2</title>
+    <title>J.A.R.V.I.S - SUPREME COMMAND CENTER v7.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -26,11 +26,10 @@
         @keyframes breathe { 0%, 100% { box-shadow: 0 0 15px #0ea5e9; transform: scale(0.98); } 50% { box-shadow: 0 0 35px #0ea5e9; transform: scale(1.02); } }
         @keyframes spin { 100% { transform: rotate(360deg); } }
         
-        /* THANH TRƯỢT TÙY CHỈNH CHUYÊN NGHIỆP */
         .custom-scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0ea5e9 #020617; }
         .custom-scroll::-webkit-scrollbar { width: 4px; }
         .custom-scroll::-webkit-scrollbar-track { background: #020617; border-radius: 10px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #0ea5e9; border-radius: 10px; box-shadow: 0 0 5px #0ea5e9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #0ea5e9; border-radius: 10px; }
         
         .mic-active { background-color: #ef4444 !important; animation: pulse-red 1.5s infinite; color: white !important; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
@@ -44,8 +43,8 @@
             <div class="flex items-center gap-4">
                 <div class="jarvis-reactor scale-75"> <div class="reactor-core"></div> </div>
                 <div>
-                    <h1 class="font-orbitron text-lg font-bold tracking-widest text-white">J.A.R.V.I.S <span class="text-blue-500 text-sm">GLOBAL_OPS_v7.2</span></h1>
-                    <div id="location-tag" class="text-[8px] text-blue-400 font-mono tracking-widest uppercase animate-pulse">Location: Synchronizing...</div>
+                    <h1 class="font-orbitron text-lg font-bold tracking-widest text-white">J.A.R.V.I.S <span class="text-blue-500 text-sm">GLOBAL_OPS_v7.3</span></h1>
+                    <div id="location-tag" class="text-[8px] text-blue-400 font-mono tracking-widest uppercase animate-pulse">Synchronizing...</div>
                 </div>
             </div>
             <div id="connection-status" class="text-[10px] font-bold text-green-500 bg-slate-900 px-4 py-1 rounded border border-green-900/50 font-orbitron">SIGNAL_ACTIVE</div>
@@ -60,13 +59,14 @@
                         <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1"><option value="5">05 Tasks</option><option value="15" selected>15 Tasks</option></select>
                         <button onclick="distributeKnowledge()" id="btnDistribute" class="bg-blue-600 hover:bg-blue-500 text-[9px] font-bold px-3 py-1 rounded transition-all">PHÂN BỔ</button>
                     </div>
+                    <div id="statusBox" class="text-[8px] text-slate-500 mt-2 italic">Radar: Ready</div>
                 </div>
 
-                <div class="glass-panel p-4 border-t-2 border-red-500 bg-red-950/10">
-                    <h3 class="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-crosshairs"></i> Project Hunter</h3>
-                    <input type="text" id="hunterKeyword" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-red-500" placeholder="Từ khóa săn dự án...">
-                    <button onclick="activateHunter()" id="btnHunter" class="w-full bg-red-600 hover:bg-red-700 text-[9px] font-bold py-2 rounded transition-all">QUÉT RADAR QUỐC TẾ</button>
-                    <div id="hunterStatus" class="text-[8px] text-slate-500 mt-2 italic font-mono uppercase">Radar: Idle</div>
+                <div class="glass-panel p-4 border-t-2 border-red-500 bg-red-950/10 shadow-lg shadow-red-950/20">
+                    <h3 class="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-crosshairs animate-pulse"></i> Global Hunter Radar</h3>
+                    <input type="text" id="hunterKeyword" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-red-500 shadow-inner" placeholder="Săn dự án (Amazon, AI Tool, Web...)">
+                    <button onclick="activateHunter()" id="btnHunter" class="w-full bg-red-600 hover:bg-red-700 text-[9px] font-bold py-2 rounded transition-all shadow-lg active:scale-95">QUÉT RADAR QUỐC TẾ</button>
+                    <div id="hunterStatus" class="text-[8px] text-slate-500 mt-2 italic font-mono">Radar Status: Idle</div>
                 </div>
 
                 <div class="glass-panel p-4 border-l-4 border-cyan-500 bg-cyan-950/5">
@@ -74,14 +74,14 @@
                     <button onclick="startFullProject()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-[9px] font-bold py-2 rounded shadow-lg">KHỞI TẠO SIÊU DỰ ÁN</button>
                 </div>
 
-                <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden border-t-2 border-orange-500">
+                <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden border-t-2 border-orange-500 shadow-lg">
                     <h3 class="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">Satellite Nodes (<span id="worker-count">0</span>)</h3>
                     <div id="worker-list" class="flex-1 custom-scroll space-y-2 pr-1"></div>
                 </div>
             </div>
 
             <div class="w-1/2 flex flex-col gap-4 h-full">
-                <div class="glass-panel flex-1 flex flex-col p-4 overflow-hidden border-b-2 border-blue-500/30">
+                <div class="glass-panel flex-1 flex flex-col p-4 overflow-hidden border-b-2 border-blue-500/30 shadow-2xl">
                     <div id="chat-box" class="flex-1 custom-scroll space-y-4 pr-2 font-mono text-sm mb-2"></div>
                     
                     <div id="visualizer" class="h-6 flex items-end gap-1 opacity-0 mb-2 transition-opacity">
@@ -90,9 +90,9 @@
                         <div class="w-1 bg-blue-300 animate-bounce h-5"></div>
                     </div>
 
-                    <div class="flex gap-2 p-2 bg-slate-900/50 rounded-full border border-slate-800">
+                    <div class="flex gap-2 p-2 bg-slate-900/50 rounded-full border border-slate-800 shadow-inner">
                         <button id="mic-btn" class="w-10 h-10 rounded-full bg-slate-800 text-blue-400 flex items-center justify-center transition-all hover:bg-slate-700"><i class="fas fa-microphone"></i></button>
-                        <input type="text" id="user-input" class="flex-1 bg-transparent px-4 text-xs text-white outline-none" placeholder="Nhập lệnh điều hành...">
+                        <input type="text" id="user-input" class="flex-1 bg-transparent px-4 text-xs text-white outline-none" placeholder="Nhập lệnh điều hành J.A.R.V.I.S...">
                         <button id="send-btn" class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all"><i class="fas fa-paper-plane"></i></button>
                     </div>
                 </div>
@@ -109,9 +109,9 @@
                         <p id="legacy-count" class="text-sm font-bold text-white font-orbitron">0</p>
                     </div>
                 </div>
-                <div class="glass-panel p-2 h-40 border-t-2 border-emerald-500 shadow-inner"><canvas id="growthChart"></canvas></div>
-                <div class="glass-panel flex-1 flex flex-col overflow-hidden">
-                    <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center text-[10px] font-bold uppercase text-blue-300">Activity Log</div>
+                <div class="glass-panel p-2 h-40 border-t-2 border-emerald-500"><canvas id="growthChart"></canvas></div>
+                <div class="glass-panel flex-1 flex flex-col overflow-hidden shadow-lg">
+                    <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center text-[10px] font-bold uppercase text-blue-300">Activity Log / Global Database</div>
                     <div id="audit-table-body" class="flex-1 custom-scroll text-[9px] p-2 space-y-2 font-mono"></div>
                 </div>
             </div>
@@ -120,8 +120,8 @@
 
     <div id="detailModal" class="hidden fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-8 backdrop-blur-xl">
         <div class="bg-slate-900 border border-blue-500/30 w-full max-w-5xl h-[85vh] rounded-xl flex flex-col overflow-hidden shadow-2xl">
-            <div class="p-4 border-b border-slate-800 flex justify-between items-center text-blue-400 font-orbitron uppercase">
-                <span>Insight_Decryption</span>
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center text-blue-400 font-orbitron uppercase tracking-widest">
+                <span>Data_Insight_Decryption</span>
                 <button onclick="document.getElementById('detailModal').classList.add('hidden')" class="text-3xl font-light hover:text-red-500 transition-all">&times;</button>
             </div>
             <div id="modal-content" class="p-10 custom-scroll text-sm text-slate-300 font-sans leading-relaxed"></div>
@@ -133,10 +133,10 @@
         const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/nexus`);
         let logsData = [];
 
-        // 1. UPDATE TIME & LOCATION
+        // 1. DYNAMIC SYSTEM CONTEXT
         function updateLocation() {
             const now = new Date();
-            document.getElementById('location-tag').innerText = `Time: ${now.toLocaleTimeString('vi-VN')} ${now.toLocaleDateString('vi-VN')} | Mode: GLOBAL_NET`;
+            document.getElementById('location-tag').innerText = `Time: ${now.toLocaleTimeString('vi-VN')} ${now.toLocaleDateString('vi-VN')} | Mode: GLOBAL_OPS_ACTIVE`;
         }
         setInterval(updateLocation, 1000);
 
@@ -153,7 +153,7 @@
                 const res = await fetch('/api/tts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text.substring(0, 400) })
+                    body: JSON.stringify({ text: text.substring(0, 500) })
                 });
                 if (res.ok) {
                     const blob = await res.blob();
@@ -162,22 +162,34 @@
             } catch (e) { console.error("TTS_FAIL"); }
         }
 
-        // 4. CORE FUNCTIONS
+        // 4. MISSION FUNCTIONS
         async function distributeKnowledge() {
             const subject = document.getElementById('subjectInput').value;
             const num = document.getElementById('taskNumInput').value;
+            const btn = document.getElementById('btnDistribute');
             if(!subject) return;
-            const res = await fetch('/api/admin/auto_distribute_knowledge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
-                body: JSON.stringify({ subject, num_tasks: parseInt(num) })
-            });
-            const d = await res.json();
-            if(d.status==='success') {
-                addChat("AI", `Đã phân rã chủ đề **${subject}**.`);
-                document.getElementById('subjectInput').value = '';
-                fetchData();
-            }
+
+            btn.innerText = "BÓC TÁCH...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/admin/auto_distribute_knowledge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
+                    body: JSON.stringify({ 
+                        subject: subject, 
+                        num_tasks: parseInt(num),
+                        reward_per_task: 0.05 // <--- FIX: GỬI NGÂN SÁCH ĐỊNH GIÁ $0.05
+                    })
+                });
+                const d = await res.json();
+                if(d.status==='success') {
+                    addChat("AI", `Giám sát viên đã phân phối chủ đề **${subject}** thành ${d.tasks_created} mẩu tri thức với ngân sách dự chi $${(d.tasks_created * 0.05).toFixed(2)}.`);
+                    document.getElementById('subjectInput').value = '';
+                    fetchData();
+                }
+            } catch (e) { console.error(e); }
+            finally { btn.innerText = "PHÂN BỔ"; btn.disabled = false; }
         }
 
         async function activateHunter() {
@@ -186,8 +198,8 @@
             const btn = document.getElementById('btnHunter');
             if(!kw) return;
             
-            btn.innerText = "SCANNING...";
-            status.innerHTML = '<span class="text-red-400 animate-pulse">📡 RADAR SCANNING GLOBAL...</span>';
+            btn.innerText = "RADAR SCANNING...";
+            status.innerHTML = '<span class="text-red-400 animate-pulse font-bold tracking-widest">📡 RADAR SCANNING GLOBAL FREELANCE...</span>';
             
             try {
                 const res = await fetch('/api/admin/start_hunting', {
@@ -196,16 +208,17 @@
                     body: JSON.stringify({ keyword: kw })
                 });
                 const d = await res.json();
-                status.innerHTML = `<span class="text-green-500">✅ HARVESTED ${d.projects_hunted} NODES</span>`;
-                addChat("AI", `Radar Hunter đã tìm thấy dữ liệu về **${kw}**.`);
+                status.innerHTML = `<span class="text-green-500 font-bold uppercase tracking-tighter">✅ HARVESTED ${d.projects_hunted || 0} GLOBAL PROJECTS</span>`;
+                addChat("AI", `Radar Hunter đã quét thành công tín hiệu dự án về **${kw}** và đang đưa vào Pipeline thực thi.`);
                 fetchData();
-            } catch (e) { status.innerText = "Radar Fail"; }
+            } catch (e) { status.innerText = "Radar Fail - Signal Lost"; }
             finally { btn.innerText = "QUÉT RADAR QUỐC TẾ"; }
         }
 
         async function startFullProject() {
-            const req = prompt("Tên siêu dự án:");
+            const req = prompt("Mô tả Siêu Dự Án (Architect Builder):");
             if(!req) return;
+            addChat("AI", `Khởi động Pipeline Siêu Dự Án: **${req}**. Đang triệu tập thợ đào tinh nhuệ...`);
             fetch('/api/plan_project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
@@ -213,7 +226,7 @@
             });
         }
 
-        // 5. DATA SYNC (FIXED MODAL CLICK)
+        // 5. DATA SYNC & CLICK LOGS
         async function fetchData() {
             try {
                 const [resLogs, resWealth, resWorkers] = await Promise.all([
@@ -223,18 +236,29 @@
                 const wealth = await resWealth.json();
                 const workers = await resWorkers.json();
 
-                logsData = logs;
+                logsData = logs; // Lưu cache dữ liệu
+
                 document.getElementById('audit-table-body').innerHTML = logs.map((item, idx) => `
-                    <div onclick="showDetail(${idx})" class="bg-slate-900/60 p-2 rounded border border-slate-800 hover:border-blue-500/50 cursor-pointer transition-all active:scale-[0.98]">
-                        <div class="flex justify-between text-[7px] text-slate-500 mb-1 pointer-events-none"><span>${item.timestamp}</span><span class="text-green-500">$${(item.cost_usd || item.cost || 0).toFixed(4)}</span></div>
-                        <div class="text-[8px] font-bold text-slate-300 uppercase pointer-events-none">${item.agent || item.agent_name}</div>
-                        <div class="truncate text-slate-400 text-[8px] pointer-events-none">${item.task || item.task_content}</div>
-                    </div>`).join('');
+                    <div onclick="showDetail(${idx})" 
+                         class="relative bg-slate-900/60 p-3 rounded border border-slate-800 hover:border-blue-500 hover:bg-slate-800/80 cursor-pointer transition-all active:scale-[0.96] mb-2 group shadow-sm">
+                        <div class="flex justify-between text-[7px] text-slate-500 mb-1">
+                            <span class="font-mono">${item.timestamp}</span>
+                            <span class="text-green-500 font-bold tracking-tighter">$${(item.cost_usd || item.cost || 0).toFixed(4)}</span>
+                        </div>
+                        <div class="text-[9px] font-bold text-slate-200 group-hover:text-blue-400 transition-colors uppercase">
+                            ${item.agent || item.agent_name || 'UNDEFINED_NODE'}
+                        </div>
+                        <div class="truncate text-slate-400 text-[8px] mt-1 italic line-clamp-1">
+                            ${item.task || item.task_content || 'Executing mission...'}
+                        </div>
+                        <div class="absolute inset-0 z-10"></div> </div>`).join('');
 
                 if(wealth.financial_report) {
                     const cost = wealth.financial_report.total_cost_usd;
                     document.getElementById('total-cost').innerText = `$${cost.toFixed(4)}`;
-                    document.getElementById('legacy-count').innerText = wealth.intellectual_assets.HIGH_QUALITY_SYNTHESIS;
+                    document.getElementById('legacy-count').innerText = 
+                        (wealth.intellectual_assets.HIGH_QUALITY_SYNTHESIS || 0) + (wealth.intellectual_assets.LEGENDARY_MASTER_PLANS || 0);
+                    
                     growthChart.data.labels.push(""); growthChart.data.datasets[0].data.push(cost);
                     if(growthChart.data.labels.length > 20) { growthChart.data.labels.shift(); growthChart.data.datasets[0].data.shift(); }
                     growthChart.update();
@@ -242,44 +266,54 @@
 
                 document.getElementById('worker-count').innerText = workers.length;
                 document.getElementById('worker-list').innerHTML = workers.map(w => `
-                    <div class="bg-blue-950/10 border border-slate-800 p-2 rounded flex items-center justify-between">
-                        <div class="flex items-center gap-2"><i class="fas fa-microchip text-orange-500 text-[9px] animate-pulse"></i><div><p class="text-[8px] font-bold text-slate-200">${w.worker_id}</p><p class="text-[6px] text-slate-500 truncate w-24">${w.current_task}</p></div></div>
-                        <span class="text-[6px] text-orange-400 font-bold border border-orange-900 px-1 rounded uppercase">Busy</span>
+                    <div class="bg-blue-950/10 border border-slate-800 p-2 rounded flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-2"><i class="fas fa-microchip text-orange-500 text-[9px] animate-pulse"></i><div><p class="text-[8px] font-bold text-slate-200">${w.worker_id}</p><p class="text-[6px] text-slate-400 truncate w-24">${w.current_task || 'Waiting...'}</p></div></div>
+                        <span class="text-[6px] text-orange-400 font-bold border border-orange-900 px-1 rounded uppercase tracking-tighter">Node_Busy</span>
                     </div>`).join('');
-            } catch(e) {}
+            } catch(e) { console.error("Global Sync Error:", e); }
         }
 
-        // 6. CHAT & MODAL
+        // 6. MODAL & CHAT
+        function showDetail(idx) {
+            const item = logsData[idx];
+            if(!item) return;
+            const modal = document.getElementById('detailModal');
+            document.getElementById('modal-title').innerText = item.task || item.task_content || "NHẬT KÝ CHI TIẾT";
+            
+            // Ưu tiên hiển thị Result (Nội dung thợ đào nộp)
+            const rawContent = item.result || item.result_summary || "Hệ thống đang mã hóa dữ liệu, vui lòng đợi...";
+            document.getElementById('modal-content').innerHTML = marked.parse(rawContent);
+            modal.classList.remove('hidden');
+        }
+
         function addChat(role, text) {
             const div = document.createElement('div');
             div.className = role === 'AI' ? "bg-blue-900/10 border-l-2 border-blue-500 p-3 rounded" : "bg-slate-800/40 p-3 rounded ml-6 text-right";
-            div.innerHTML = `<span class="text-[7px] font-bold block mb-1 ${role === 'AI' ? 'text-blue-500' : 'text-green-500'} font-orbitron">${role === 'AI' ? 'JARVIS_CORE' : 'CEO'}</span>
-                             <div class="text-xs text-slate-300">${marked.parse(text)}</div>`;
+            div.innerHTML = `<span class="text-[7px] font-bold block mb-1 ${role === 'AI' ? 'text-blue-500' : 'text-green-500'} font-orbitron tracking-widest">${role === 'AI' ? 'JARVIS_CORE' : 'COMMANDER_SUPREME'}</span>
+                             <div class="text-xs text-slate-300 leading-relaxed">${marked.parse(text)}</div>`;
             document.getElementById('chat-box').appendChild(div);
             document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         }
 
         ws.onmessage = (e) => { 
             try {
-                const d = JSON.parse(e.data); addChat("AI", d.content); playVoice(d.content); 
+                const d = JSON.parse(e.data); 
+                addChat("AI", d.content); 
+                playVoice(d.content); 
                 visualizer.classList.remove('opacity-0'); setTimeout(() => visualizer.classList.add('opacity-0'), 3000);
-            } catch { addChat("AI", e.data); playVoice(e.data); }
+            } catch { 
+                addChat("AI", e.data); 
+                playVoice(e.data); 
+            }
         };
 
         document.getElementById('send-btn').onclick = () => {
             const i = document.getElementById('user-input');
             if(i.value) { addChat("USER", i.value); ws.send(i.value); i.value = ''; }
         };
+        document.getElementById('user-input').onkeypress = (e) => { if(e.key==='Enter') document.getElementById('send-btn').click(); };
 
-        function showDetail(idx) {
-            const item = logsData[idx];
-            if(!item) return;
-            document.getElementById('modal-title').innerText = item.task || "Log Metadata";
-            document.getElementById('modal-content').innerHTML = marked.parse(item.result || item.result_summary || "NO_DATA_AVAILABLE");
-            document.getElementById('detailModal').classList.remove('hidden');
-        }
-
-        // 7. VOICE RECOGNITION
+        // 7. VOICE RECOGNITION (STT)
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if(Recognition) {
             const rec = new Recognition(); rec.lang = 'vi-VN';
