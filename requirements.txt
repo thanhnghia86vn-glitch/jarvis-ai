@@ -1,16 +1,13 @@
+# --- Web & Server ---
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 aiofiles
 jinja2
 python-dotenv
-termcolor
-requests
-apscheduler
-gtts
-sqlalchemy
-psycopg2-binary
 websockets
+
+# --- AI & LangChain ---
 langchain
 langchain-core
 langchain-community
@@ -18,15 +15,33 @@ langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-chroma
+langgraph
 chromadb
-pydantic
-httpx
-pandas
-numpy
-fpdf2
 openai
 google-generativeai
 anthropic
-duckduckgo-search   
-beautifulsoup4                 
+
+# --- Data Processing & Tools ---
+pandas
+numpy
+beautifulsoup4
 lxml
+duckduckgo-search
+feedparser
+requests
+httpx
+pydantic
+
+# --- Database & Scheduling ---
+sqlalchemy
+psycopg2-binary
+apscheduler
+greenlet
+
+# --- Media & UI ---
+gtts
+fpdf2
+termcolor
+
+# --- Security ---
+cryptography
