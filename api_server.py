@@ -1819,72 +1819,99 @@ async def create_job(topic: str, type: str, price: float, x_api_key: str = Heade
 # ==========================================
 # 3. PHẦN 5: AI SUPERVISOR
 # ==========================================
+def split_long_subject(text, max_length=4000):
+    """Chia nhỏ dự án chục trang thành các đoạn nhỏ dưới 4000 ký tự."""
+    # Chia theo dấu câu để không làm mất ngữ cảnh giữa chừng
+    chunks = re.split(r'(?<=[.!?]) +', text)
+    result = []
+    current_chunk = ""
+    for segment in chunks:
+        if len(current_chunk) + len(segment) < max_length:
+            current_chunk += " " + segment
+        else:
+            result.append(current_chunk.strip())
+            current_chunk = segment
+    if current_chunk:
+        result.append(current_chunk.strip())
+    return result
+
 @app.post("/api/admin/auto_distribute_knowledge")
 async def auto_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(None)):
-    """
-    Dùng AI chính để phân rã một chủ đề lớn thành nhiều nhiệm vụ nhỏ cho Worker.
-    """
     if x_api_key != ADMIN_SECRET: 
         raise HTTPException(status_code=403)
     
     if not CHAT_MODEL:
         return {"status": "error", "msg": "AI Core chưa sẵn sàng"}
 
-    print(colored(f"🧠 [SUPERVISOR] Đang phân rã chủ đề: {req.subject}", "magenta"))
-
-    # Prompt điều khiển AI chia nhỏ việc
-    prompt = f"""
-    Bạn là Giám đốc Đào tạo của J.A.R.V.I.S. 
-    CEO yêu cầu đào tạo hệ thống về chủ đề: "{req.subject}".
-    Hãy chia nhỏ chủ đề này thành {req.num_tasks} nhiệm vụ cụ thể cho các máy vệ tinh.
+    # 1. Xử lý chia nhỏ nội dung nếu quá dài (hàng chục trang)
+    full_subject_chunks = split_long_subject(req.subject)
+    total_count = 0
     
-    Yêu cầu:
-    1. Mỗi nhiệm vụ phải độc lập và không trùng lặp.
-    2. Phân loại nhiệm vụ thành: RESEARCH (Nghiên cứu lý thuyết) hoặc PRACTICE_CODE (Viết code mẫu).
-    3. Định giá (Reward) từ $0.01 đến $0.1 tùy độ khó.
-    4. Trả về định dạng JSON list như mẫu sau:
-    [
-        {{"topic": "Tên task", "type": "RESEARCH", "reward": 0.02, "content": "Hướng dẫn chi tiết..."}},
-        ...
-    ]
-    Chỉ trả về JSON thuần túy, không có Markdown.
-    """
+    # 2. Quy định ngân sách tối thiểu (Ép giá để tránh $0)
+    # Nếu CEO không gửi reward_per_task, mặc định là 0.05
+    min_reward = getattr(req, 'reward_per_task', 0.05)
+    if min_reward <= 0: min_reward = 0.05
 
-    try:
-        # 1. Gọi AI để lấy danh sách Task
-        response = await CHAT_MODEL.ainvoke(prompt)
-        raw_json = response.content.replace("```json", "").replace("```", "").strip()
-        task_list = json.loads(raw_json)
+    print(colored(f"🧠 [SUPERVISOR] Đang xử lý dự án dài ({len(full_subject_chunks)} đoạn)", "magenta"))
 
-        # 2. Nạp hàng loạt vào Database
-        count = 0
-        with db_manager.get_connection() as conn:
-            for task in task_list:
-                try:
-                    conn.execute(
-                        text("""
-                            INSERT INTO learning_tasks (topic, task_type, reward, content, status) 
-                            VALUES (:t, :type, :r, :c, 'PENDING')
-                        """),
-                        {
-                            "t": f"[{req.subject.upper()}] {task['topic']}",
-                            "type": task['type'],
-                            "r": task['reward'],
-                            "c": task['content']
-                        }
-                    )
-                    count += 1
-                except: continue # Bỏ qua nếu trùng topic
-            conn.commit()
+    for chunk_idx, chunk_content in enumerate(full_subject_chunks):
+        # Prompt điều khiển AI chuyên sâu
+        prompt = f"""
+        Bạn là Giám đốc Đào tạo của J.A.R.V.I.S. 
+        PHÂN ĐOẠN DỰ ÁN ({chunk_idx + 1}/{len(full_subject_chunks)}): "{chunk_content[:200]}..."
+        
+        Hãy bẻ nhỏ đoạn nội dung này thành tối đa {max(1, req.num_tasks // len(full_subject_chunks))} nhiệm vụ.
+        
+        YÊU CẦU NGHIÊM NGẶT:
+        1. Định giá (Reward) PHẢI là số thực (ví dụ: {min_reward}). KHÔNG ĐƯỢC ĐỂ 0.
+        2. Loại task: RESEARCH hoặc PRACTICE_CODE.
+        3. Định dạng JSON list: [{{"topic": "...", "type": "...", "reward": {min_reward}, "content": "..."}}]
+        Chỉ trả về JSON thuần túy.
+        """
 
-        return {
-            "status": "success", 
-            "tasks_created": count, 
-            "msg": f"Đã phân rã thành công {count} nhiệm vụ về {req.subject}"
-        }
+        try:
+            response = await CHAT_MODEL.ainvoke(prompt)
+            raw_json = response.content.replace("```json", "").replace("```", "").strip()
+            
+            # Xử lý trường hợp AI trả về văn bản thừa
+            json_match = re.search(r'\[.*\]', raw_json, re.DOTALL)
+            if json_match:
+                task_list = json.loads(json_match.group())
+            else:
+                continue
 
-    except Exception as e:
-        return {"status": "error", "msg": str(e)}
+            # 3. Nạp vào Database
+            with db_manager.engine.connect() as conn:
+                for task in task_list:
+                    # Đảm bảo reward không bao giờ bằng 0 khi nạp vào DB
+                    final_reward = float(task.get('reward', min_reward))
+                    if final_reward <= 0: final_reward = min_reward
+                    
+                    try:
+                        conn.execute(
+                            text("""
+                                INSERT INTO learning_tasks (topic, task_type, reward, content, status) 
+                                VALUES (:t, :type, :r, :c, 'PENDING')
+                            """),
+                            {
+                                "t": f"[{req.subject[:30].upper()}...] {task['topic']}",
+                                "type": task['type'],
+                                "r": final_reward,
+                                "c": task['content']
+                            }
+                        )
+                        total_count += 1
+                    except: continue 
+                conn.commit()
+        except Exception as e:
+            print(colored(f"❌ Lỗi đoạn {chunk_idx}: {str(e)}", "red"))
+            continue
+
+    return {
+        "status": "success", 
+        "tasks_created": total_count, 
+        "msg": f"Đã phân rã dự án dài thành {total_count} nhiệm vụ. Ngân sách mỗi task: ${min_reward}"
+    }
 # --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
 
 @app.post("/api/admin/seed_tasks")
@@ -2083,9 +2110,11 @@ def hunt_freelance_projects(keyword="python"):
 
 class ProjectHunter:
     @staticmethod
-    async def hunt_and_distribute(keyword: str):
-        # Ví dụ: Quét từ RSS Feed của các sàn việc làm (thay bằng link thực tế của bạn)
-        # Ở đây tôi dùng link giả lập hoặc một nguồn tin cậy
+    async def hunt_and_distribute(keyword: str, default_reward: float = 0.05):
+        """
+        Săn dự án và phân bổ task. 
+        Thêm 'default_reward' để thay thế cho biến 'req' bị thiếu.
+        """
         feeds = [
             f"https://remoteok.com/remote-{keyword}-jobs.rss",
             f"https://www.upwork.com/ab/feed/jobs/rss?q={keyword}"
@@ -2094,46 +2123,71 @@ class ProjectHunter:
         new_projects = []
         for url in feeds:
             try:
+                # Chạy feedparser trong threadpool để không chặn async loop
                 feed = await run_in_threadpool(lambda: feedparser.parse(url))
-                for entry in feed.entries[:5]: # Lấy 5 tin mới nhất mỗi nguồn
+                for entry in feed.entries[:5]: 
                     new_projects.append({
                         "title": entry.title,
                         "link": entry.link,
                         "summary": entry.summary
                     })
-            except: continue
+            except Exception as e:
+                print(f"⚠️ Lỗi quét RSS: {e}")
+                continue
 
-        if not new_projects: return 0
+        if not new_projects: 
+            return 0
 
-        # Dùng AI để thẩm định và bóc tách
         count = 0
         for proj in new_projects:
             prompt = f"""
-            Phân tích dự án freelance này: 
-            Tiêu đề: {proj['title']}
+            Bạn là chuyên gia thẩm định dự án của J.A.R.V.I.S.
+            Phân tích dự án: {proj['title']}
             Mô tả: {proj['summary']}
             
-            Nếu dự án này khả thi để làm bằng code hoặc nghiên cứu, hãy chia nó thành 3-5 task nhỏ.
-            Trả về JSON list: [{{"topic": "...", "type": "...", "reward": ...}}]
+            Yêu cầu: Chia dự án thành 3-5 task nhỏ.
+            Định dạng JSON list: [{{"topic": "...", "type": "RESEARCH hoặc PRACTICE_CODE", "reward": 0.05, "content": "..."}}]
             """
             try:
                 ai_res = await CHAT_MODEL.ainvoke(prompt)
-                tasks = json.loads(ai_res.content.replace("```json", "").replace("```", "").strip())
+                # Parse nội dung AI trả về
+                cleaned_content = ai_res.content.replace("```json", "").replace("```", "").strip()
                 
-                with db_manager.get_connection() as conn:
-                    for t in tasks:
-                        conn.execute(text("""
-                            INSERT INTO learning_tasks (topic, task_type, reward, content, status)
-                            VALUES (:t, :type, :r, :c, 'PENDING')
-                        """), {
-                            "t": f"🚀 [HUNTER] {t['topic']}",
-                            "type": t['type'], "r": t['reward'], "c": f"Dự án gốc: {proj['link']}\nNhiệm vụ: {t['topic']}"
-                        })
+                # SỬA LỖI TÊN BIẾN: Đặt thống nhất là 'tasks'
+                tasks = json.loads(cleaned_content)
+                
+                with db_manager.engine.connect() as conn:
+                    for task in tasks: # Đã đổi từ task_list thành tasks
+                        
+                        # SỬA LỖI 'req': Thay 'req.reward_per_task' bằng 'default_reward' hoặc task['reward']
+                        # Ưu tiên lấy giá từ AI, nếu không có thì dùng default_reward (0.05)
+                        reward_value = float(task.get('reward', default_reward))
+                        if reward_value <= 0: 
+                            reward_value = default_reward
+
+                        try:
+                            conn.execute(
+                                text("""
+                                    INSERT INTO learning_tasks (topic, task_type, reward, content, status)
+                                    VALUES (:t, :type, :r, :c, 'PENDING')
+                                """),
+                                {
+                                    "t": f"🚀 [HUNTER] {task.get('topic', 'New Task')}",
+                                    "type": task.get('type', 'RESEARCH'),
+                                    "r": reward_value,
+                                    "c": f"Dự án gốc: {proj['link']}\n\nYêu cầu: {task.get('content', '')}"
+                                }
+                            )
+                        except Exception as e:
+                            print(f"❌ Lỗi INSERT task: {e}")
+                            continue
                     conn.commit()
                 count += 1
-            except: continue
+            except Exception as e:
+                print(f"❌ Lỗi xử lý dự án '{proj['title']}': {e}")
+                continue
+                
         return count
-
 # --- API ĐIỀU KHIỂN THỢ SĂN ---
 @app.post("/api/admin/start_hunting")
 async def start_hunting_api(req: HunterRequest, x_api_key: str = Header(None)):
@@ -2141,8 +2195,8 @@ async def start_hunting_api(req: HunterRequest, x_api_key: str = Header(None)):
         raise HTTPException(status_code=403)
     
     # Gọi thợ săn chạy ngầm
-    found = await ProjectHunter.hunt_and_distribute(req.keyword)
-    return {"status": "success", "projects_hunted": found}
+    count = await ProjectHunter.hunt_and_distribute(req.keyword, default_reward=0.1)
+    return {"status": "success", "projects_hunted": count}
 # ==========================================
 # 🚀 SYSTEM ROUTES
 # ==========================================
