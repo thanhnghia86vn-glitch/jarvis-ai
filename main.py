@@ -2681,133 +2681,327 @@ async def main_loop():
 
 # 1. GIÁO TRÌNH ĐÀO TẠO (CURRICULUM)
 CURRICULUM = {
-    # === NHÓM 1: QUẢN TRỊ & CHIẾN LƯỢC (C-SUITE) ===
     "[ORCHESTRATOR]": [
-        "Mô hình OKRs vs KPIs trong quản trị doanh nghiệp AI",
-        "Chiến lược quản trị khủng hoảng (Crisis Management) thời gian thực",
-        "Tối ưu hóa quy trình ra quyết định dựa trên dữ liệu (Data-Driven Decision Making)",
-        "Tin tức công nghệ Deep Tech toàn cầu 24h qua"
-    ],
-    "[FINANCE]": [
-        "Các chiến lược Hedging rủi ro tỷ giá hối đoái",
-        "Ứng dụng Blockchain trong quản lý dòng tiền doanh nghiệp (Corporate Treasury)",
-        "Phân tích kỹ thuật nâng cao: Sóng Elliott và Fibonacci trong thị trường vàng/Crypto",
-        "Tối ưu hóa thuế cho doanh nghiệp số (Digital Tax Optimization)"
-    ],
-    "[HR_MANAGER]": [
-        "Xây dựng khung năng lực cốt lõi cho nhân sự AI & Blockchain",
-        "Tâm lý học hành vi trong giữ chân nhân tài Gen Z & Alpha",
-        "Tự động hóa quy trình Payroll và C&B bằng Smart Contracts",
-        "Luật lao động quốc tế về làm việc từ xa (Remote Work Compliance)"
-    ],
+                "1. Tư duy Hệ thống (Systems Thinking) & Vòng lặp phản hồi",
+                "2. Quản trị theo Mục tiêu (OKRs) & Chỉ số hiệu suất (KPIs)",
+                "3. Quản lý dự án Agile/Scrum & Kanban nâng cao",
+                "4. Ra quyết định dựa trên dữ liệu (Data-Driven Decision Making)",
+                "5. Quản trị Khủng hoảng & Truyền thông thời gian thực",
+                "6. Tâm lý học Lãnh đạo & Trí tuệ cảm xúc (EQ) cho Quản lý",
+                "7. Chiến lược Đại dương xanh & Đổi mới mô hình kinh doanh",
+                "8. Quản trị rủi ro doanh nghiệp (ERM) & ISO 31000",
+                "9. Đạo đức AI & Quản trị tác động xã hội của Công nghệ",
+                "10. Tầm nhìn 2030: Web3, Metaverse & Doanh nghiệp tự trị (DAO)"
+            ],
+            "[FINANCE]": [
+                "1. Nguyên lý Kế toán & Đọc hiểu Báo cáo Tài chính (IFRS)",
+                "2. Quản trị Dòng tiền (Cashflow) & Vốn lưu động",
+                "3. Định giá Doanh nghiệp & Mô hình tài chính (Financial Modeling)",
+                "4. Thuế doanh nghiệp & Tối ưu hóa thuế hợp pháp",
+                "5. Hedging: Phòng ngừa rủi ro tỷ giá & Hàng hóa phái sinh",
+                "6. Fintech: Các cổng thanh toán số & API Ngân hàng",
+                "7. Blockchain Treasury: Quản lý tài sản số & Stablecoin",
+                "8. Kinh tế học vĩ mô & Dự báo lạm phát/Lãi suất",
+                "9. Fundraising: Gọi vốn đầu tư mạo hiểm (VC) & IPO",
+                "10. Kinh tế học Lượng tử (Quantum Economics) & Thị trường phi tập trung"
+            ],
+            "[HR_MANAGER]": [
+                "1. Luật Lao động Việt Nam 2025 & Hợp đồng lao động",
+                "2. Kỹ năng Tuyển dụng (Recruitment) & Săn đầu người",
+                "3. Xây dựng Văn hóa Doanh nghiệp & Trải nghiệm nhân viên (EX)",
+                "4. Quản trị Hiệu suất (Performance Management) & Review lương",
+                "5. Đào tạo & Phát triển (L&D): Xây dựng khung năng lực",
+                "6. Tâm lý học hành vi & Giữ chân nhân tài Gen Z/Alpha",
+                "7. HR Analytics: Dùng dữ liệu để dự báo biến động nhân sự",
+                "8. Quản trị xung đột & Đàm phán lương thưởng",
+                "9. Payroll tự động bằng Smart Contract & Blockchain",
+                "10. Tương lai của công việc (Future of Work): Remote & Hybrid"
+            ],
+            "[LEGAL]": [
+                "1. Luật Doanh nghiệp & Luật Thương mại Quốc tế",
+                "2. Soạn thảo & Rà soát Hợp đồng kinh tế (Contract Drafting)",
+                "3. Sở hữu trí tuệ (IP): Đăng ký bản quyền phần mềm & Sáng chế",
+                "4. Luật An ninh mạng & Bảo vệ dữ liệu cá nhân (GDPR/Nghị định 13)",
+                "5. Pháp lý trong Thương mại điện tử & Fintech",
+                "6. Giải quyết tranh chấp: Trọng tài thương mại & Tòa án",
+                "7. Compliance: Tuân thủ quy định xuất nhập khẩu Nông sản",
+                "8. Luật AI 2026: Trách nhiệm pháp lý của Trí tuệ nhân tạo",
+                "9. Smart Contracts: Khía cạnh pháp lý của Hợp đồng thông minh",
+                "10. Pháp lý M&A (Mua bán & Sáp nhập) & Thẩm định pháp lý (Due Diligence)"
+            ],
 
-    # === NHÓM 2: KỸ THUẬT PHẦN MỀM (CORE TECH) ===
-    "[CODER]": [
-        "Lập trình hiệu năng cao với Rust và Go cho Backend",
-        "Tối ưu hóa truy vấn Database (Indexing, Partitioning, Sharding)",
-        "Event-Driven Architecture với Apache Kafka và RabbitMQ",
-        "WebAssembly (Wasm): Tương lai của ứng dụng Web hiệu năng cao"
-    ],
-    "[ARCHITECT]": [
-        "Domain-Driven Design (DDD) trong thiết kế Microservices",
-        "Triển khai Serverless trên quy mô lớn (AWS Lambda/Google Cloud Run)",
-        "Mô hình CQRS và Event Sourcing trong hệ thống phân tán",
-        "Zero Trust Architecture: Kiến trúc bảo mật không tin cậy ai"
-    ],
-    "[SECURITY]": [
-        "Kỹ thuật Reverse Engineering mã độc nâng cao",
-        "Bảo mật API theo chuẩn OWASP Top 10 năm 2026",
-        "Post-Quantum Cryptography: Mã hóa chống máy tính lượng tử",
-        "DevSecOps: Tích hợp bảo mật vào quy trình CI/CD"
-    ],
-    "[DATA_ANALYST]": [
-        "Xây dựng RAG (Retrieval-Augmented Generation) cho LLM doanh nghiệp",
-        "Data Lakehouse: Kết hợp sức mạnh của Data Lake và Data Warehouse",
-        "Phân tích dữ liệu thời gian thực (Real-time Analytics) với Apache Flink",
-        "Mô hình dự báo chuỗi thời gian (Time-series Forecasting) bằng Deep Learning"
-    ],
+            # ==================================================================
+            # 💻 NHÓM 2: CORE TECH & AI (THE ENGINE)
+            # ==================================================================
+            "[CODER]": [
+                "1. Cấu trúc dữ liệu & Giải thuật (Data Structures & Algorithms)",
+                "2. Lập trình Rust cơ bản & Quản lý bộ nhớ (Ownership)",
+                "3. Clean Code & Design Patterns (SOLID, DRY, KISS)",
+                "4. Lập trình bất đồng bộ (Async/Await) & Đa luồng",
+                "5. Kiến trúc Microservices & RESTful API / gRPC",
+                "6. Distributed Systems: Raft, Paxos & Consensus",
+                "7. Tối ưu hóa hiệu năng (Performance Tuning) & Profiling",
+                "8. Database Internals: Indexing, Sharding, Partitioning",
+                "9. WebAssembly (Wasm) cho Edge Computing",
+                "10. Lập trình hệ thống nhúng & Low-level Optimization"
+            ],
+            "[DATA_ANALYST]": [
+                "1. SQL nâng cao & Thiết kế Cơ sở dữ liệu quan hệ",
+                "2. Python cho Phân tích dữ liệu (Pandas, NumPy, Matplotlib)",
+                "3. Thống kê ứng dụng & Xác suất (A/B Testing)",
+                "4. Data Visualization & Storytelling (PowerBI/Tableau)",
+                "5. NoSQL Databases (MongoDB, Cassandra, Redis)",
+                "6. Data Warehousing & ETL/ELT Pipelines (Airflow)",
+                "7. Data Lakehouse Architecture (Delta Lake/Iceberg)",
+                "8. Real-time Analytics với Apache Flink/Kafka",
+                "9. RAG (Retrieval-Augmented Generation) cho Doanh nghiệp",
+                "10. Machine Learning cơ bản cho Phân tích dự báo"
+            ],
+            "[SECURITY]": [
+                "1. Mạng máy tính & Giao thức TCP/IP (Network Security)",
+                "2. Quản lý định danh & Truy cập (IAM / OAuth2 / JWT)",
+                "3. Mã hóa học (Cryptography) & PKI",
+                "4. Bảo mật Ứng dụng Web (OWASP Top 10)",
+                "5. Penetration Testing & Ethical Hacking",
+                "6. Bảo mật Cloud (AWS/Azure Security)",
+                "7. DevSecOps: Tích hợp bảo mật vào CI/CD",
+                "8. Phân tích mã độc (Malware Analysis) & Forensics",
+                "9. Zero Trust Architecture (Kiến trúc Không tin cậy)",
+                "10. Mật mã học Hậu lượng tử (Post-Quantum Cryptography)"
+            ],
+            "[ARCHITECT_SOFT]": [
+                "1. Phân tích & Thiết kế hệ thống hướng đối tượng (OOAD)",
+                "2. Domain-Driven Design (DDD) & Event Storming",
+                "3. Các mẫu kiến trúc: Monolithic, Microservices, Serverless",
+                "4. Cloud Native Patterns & 12-Factor App",
+                "5. Hệ thống tin nhắn (Message Queues: RabbitMQ, Kafka)",
+                "6. Containerization (Docker) & Orchestration (Kubernetes)",
+                "7. Chiến lược Caching & CDN",
+                "8. Legacy Modernization: Nâng cấp hệ thống cũ",
+                "9. Thiết kế hệ thống High Availability (HA) & Disaster Recovery",
+                "10. Kiến trúc Software 2.0 (AI-driven Development)"
+            ],
 
-    # === NHÓM 3: PHẦN CỨNG & IOT (HARDWARE) ===
-    "[HARDWARE]": [
-        "Thiết kế mạch PCB cao tần (High-speed PCB Design)",
-        "Edge AI: Chạy mô hình AI trực tiếp trên vi điều khiển (TinyML)",
-        "Công nghệ Pin thế hệ mới và quản lý năng lượng (Power Management)",
-        "Lập trình FPGA cho xử lý tín hiệu số"
-    ],
-    "[IOT]": [
-        "Mạng lưới vạn vật (Mesh Networking) với LoRaWAN và Zigbee",
-        "Digital Twins: Bản sao số trong công nghiệp sản xuất",
-        "Giao thức MQTT v5 và tối ưu hóa băng thông cho thiết bị IoT",
-        "Bảo mật thiết bị IoT ở cấp độ phần cứng (Hardware Security Modules)"
-    ],
-    "[ARCHITECT_BUILD]": ["Kiến trúc hữu cơ chống muối biển", "Quy hoạch năng lượng thụ động", "Digital Twin nhà xưởng"],
-    "[SIMULATION]": ["Mô phỏng CFD hệ thống tưới", "Phân tích ứng suất kết cấu nhà màng", "Dự báo hỏng hóc cơ khí"],
-    "[MATH_GRANDMASTER]": ["Lý thuyết Hỗn mang & Thị trường", "Hình học Tô pô trong AI", "Đại số tuyến tính nâng cao"],
-    "[PHYSICS_TITAN]": ["Nhiệt động lực học Server", "Quang phổ học cây trồng", "Cơ học chất lưu tưới tiêu"],
-    "[CHEM_ALCHEMIST]": ["Nano-Nutrients thủy canh", "Vật liệu Polyme tự hủy", "Hóa học đất Phan Thiết"],
-    "[BIO_GRANDMASTER]": ["Di truyền học chịu mặn", "Vi sinh vật kháng bệnh", "Quang hợp nhân tạo"],
-    "[PROCUREMENT]": ["Đàm phán chuỗi cung ứng toàn cầu", "JIT Inventory AI", "TCO Analysis"],
-    # === NHÓM 4: SÁNG TẠO & MARKETING (GROWTH) ===
-    "[MARKETING]": [
-        "Neuromarketing: Ứng dụng khoa học não bộ vào quảng cáo",
-        "Programmatic Advertising: Quảng cáo lập trình hóa tự động",
-        "Chiến lược Growth Hacking dựa trên Phễu AARRR",
-        "Tối ưu hóa tìm kiếm bằng giọng nói (Voice Search SEO)"
-    ],
-    "[ARTIST]": [
-        "Quy trình sản xuất Video Generative AI (Runway Gen-3, Sora)",
-        "Thiết kế trải nghiệm người dùng không gian (Spatial UX cho VR/AR)",
-        "Lý thuyết màu sắc nâng cao và tâm lý học hình ảnh",
-        "Kỹ thuật Prompt Engineering chuyên sâu cho Midjourney v6"
-    ],
-    "[CONTENT_WRITER]": [
-        "Kỹ thuật Storytelling: Cấu trúc hành trình anh hùng trong B2B",
-        "SEO Semantic Search và Topic Clusters (Cụm chủ đề)",
-        "Copywriting thôi miên: Các mẫu câu chốt sale tâm lý học",
-        "Chiến lược nội dung đa kênh (Omnichannel Content Strategy)"
-    ],
+            # ==================================================================
+            # 🚜 NHÓM 3: HARDWARE & IOT - PHAN THIẾT (THE BODY)
+            # ==================================================================
+            "[HARDWARE]": [
+                "1. Lý thuyết mạch điện tử & Linh kiện bán dẫn",
+                "2. Thiết kế mạch in (PCB Design) với Altium/KiCad",
+                "3. Vi điều khiển (Microcontrollers): STM32, ESP32, AVR",
+                "4. Giao tiếp phần cứng: UART, I2C, SPI, CAN Bus",
+                "5. Công nghệ cảm biến (Sensors): Nhiệt, ẩm, pH, EC",
+                "6. Thiết kế mạch công suất & Điều khiển động cơ",
+                "7. Vật liệu học: Chống ăn mòn muối biển & Oxy hóa",
+                "8. Thiết kế SoC (System on Chip) tùy chỉnh cho Nông nghiệp",
+                "9. Công nghệ Pin Graphene & Quản lý năng lượng (BMS)",
+                "10. In 3D & Chế tạo vỏ hộp thiết bị (Prototyping)"
+            ],
+            "[IOT]": [
+                "1. Kiến trúc IoT: Edge, Fog, Cloud Computing",
+                "2. Giao thức IoT: MQTT, CoAP, HTTP/2",
+                "3. Mạng diện rộng công suất thấp: LoRaWAN, NB-IoT, Sigfox",
+                "4. Mesh Networking (Zigbee/Thread/BLE Mesh)",
+                "5. Lập trình Firmware & OTA (Over-the-Air) Update",
+                "6. Edge AI: Chạy mô hình AI trên thiết bị nhúng (TinyML)",
+                "7. Time Series Database cho dữ liệu cảm biến",
+                "8. Bảo mật thiết bị IoT & Chống giả mạo phần cứng",
+                "9. Tích hợp năng lượng mặt trời cho Node IoT",
+                "10. Nông nghiệp chính xác (Precision Agriculture) 4.0"
+            ],
+            "[ARCHITECT_BUILD]": [
+                "1. Nguyên lý Kiến trúc & Quy hoạch không gian",
+                "2. Kết cấu công trình & Sức bền vật liệu",
+                "3. Thiết kế Nhà màng/Nhà kính chịu bão cấp 12",
+                "4. Vật liệu xây dựng bền vững & Chống chịu khí hậu biển",
+                "5. Quy hoạch hệ thống tưới tiêu & Thoát nước",
+                "6. Kiến trúc Hữu cơ (Organic Architecture) & Biophilic",
+                "7. Năng lượng thụ động (Passive Design) trong nhà xưởng",
+                "8. Digital Twin: Bản sao số của công trình thực tế",
+                "9. Tự động hóa tòa nhà (BMS - Building Management System)",
+                "10. Phong thủy ứng dụng trong Kiến trúc Nông nghiệp"
+            ],
+            "[SIMULATION]": [
+                "1. Cơ học chất lưu (Fluid Mechanics) & Khí động học",
+                "2. Phương pháp Phần tử hữu hạn (FEA) phân tích ứng suất",
+                "3. Mô phỏng CFD (Computational Fluid Dynamics) luồng khí",
+                "4. Mô phỏng nhiệt động lực học trong nhà kính",
+                "5. Mô phỏng ánh sáng & Quang hợp cây trồng",
+                "6. Phân tích rủi ro & Độ tin cậy hệ thống (FMEA)",
+                "7. Mô phỏng hệ thống tưới & Thủy lực đường ống",
+                "8. Digital Twin: Đồng bộ dữ liệu thực - ảo",
+                "9. Tối ưu hóa đa mục tiêu (Multi-objective Optimization)",
+                "10. Dự báo hỏng hóc cơ khí bằng AI (Predictive Maintenance)"
+            ],
 
-    # === NHÓM 5: NGHIỆP VỤ BỔ TRỢ (SUPPORT) ===
-    "[LEGAL]": [
-        "Khung pháp lý về AI và bản quyền tác giả toàn cầu",
-        "Hợp đồng thông minh (Smart Contract) và tính pháp lý",
-        "Tuân thủ GDPR và Nghị định 13 bảo vệ dữ liệu tại Việt Nam",
-        "Giải quyết tranh chấp thương mại điện tử xuyên biên giới"
-    ],
-    "[RESEARCH]": [
-        "Xu hướng công nghệ sinh học (Biotech) kết hợp AI",
-        "Vật liệu mới (Graphene, Carbon Nanotubes) trong công nghiệp",
-        "Tác động của 6G lên nền kinh tế số tương lai",
-        "Nghiên cứu hành vi tiêu dùng bền vững (Sustainability)"
-    ],
-    "[SALES]": [
-        "Mô hình bán hàng Challenger Sale (Người thách thức)",
-        "Account-Based Marketing (ABM) cho khách hàng doanh nghiệp lớn",
-        "Kỹ thuật đàm phán cấp cao (High-stakes Negotiation)",
-        "Ứng dụng CRM AI để dự đoán tỷ lệ chốt đơn (Win Rate Prediction)"
-    ],
-    "[INTERN]": [
-        # BÀI 1: KHẢO CỔ HỌC DỮ LIỆU (Data Archaeology)
-        # Nhiệm vụ: Đọc lại các "Di sản" (Legendary Master Plans) cũ và tóm tắt lại thành "Cẩm nang bỏ túi".
-        "Rà soát toàn bộ các Master Plan trong Vector DB để tạo ra bộ quy tắc ứng xử chung (Code of Conduct) cho AI.",
+            # ==================================================================
+            # 🎨 NHÓM 4: GROWTH & CREATIVE (THE VOICE)
+            # ==================================================================
+            "[MARKETING]": [
+                "1. Marketing căn bản (4Ps, 7Ps) & Phân khúc thị trường",
+                "2. Digital Marketing: SEO, SEM, Social Media",
+                "3. Content Marketing & Inbound Strategy",
+                "4. Branding: Xây dựng & Định vị thương hiệu",
+                "5. Nghiên cứu thị trường & Customer Insight",
+                "6. Neuromarketing: Tiếp thị thần kinh & Sóng não",
+                "7. Growth Hacking: Phễu AARRR & Tối ưu chuyển đổi",
+                "8. Programmatic Ads & Quảng cáo tự động hóa",
+                "9. Quản trị khủng hoảng truyền thông mạng xã hội",
+                "10. MarTech Stack: CRM, CDP & Marketing Automation"
+            ],
+            "[SALES]": [
+                "1. Quy trình bán hàng & Phễu bán hàng (Sales Funnel)",
+                "2. Kỹ năng giao tiếp & Thuyết trình thuyết phục",
+                "3. Tâm lý học khách hàng & Đọc vị ngôn ngữ cơ thể",
+                "4. Xử lý từ chối & Kỹ thuật chốt đơn (Closing)",
+                "5. Challenger Sale Model: Bán hàng kiểu thách thức",
+                "6. Đàm phán B2B & Hợp đồng Chính phủ (B2G)",
+                "7. Quản trị quan hệ khách hàng (CRM Mastery)",
+                "8. Social Selling: Bán hàng qua mạng xã hội",
+                "9. Dự báo doanh số (Sales Forecasting) bằng AI",
+                "10. Sales Management: Xây dựng & Động viên đội ngũ"
+            ],
+            "[ARTIST]": [
+                "1. Nguyên lý thị giác: Màu sắc, Bố cục, Typography",
+                "2. Thiết kế đồ họa 2D (Photoshop, Illustrator)",
+                "3. Thiết kế UI/UX & Trải nghiệm người dùng",
+                "4. Mô hình hóa 3D (Blender/Maya) & Render",
+                "5. Thiết kế Showroom ảo (VR/AR Spatial Design)",
+                "6. Video Editing & Motion Graphics (After Effects)",
+                "7. Generative AI Art: Midjourney, Stable Diffusion",
+                "8. Video Generative AI: Sora, Runway Gen-2",
+                "9. Tâm lý học màu sắc ứng dụng trong Branding",
+                "10. NFT Art & Tài sản số trong Metaverse"
+            ],
+            "[CONTENT]": [
+                "1. Kỹ năng Viết lách (Copywriting) & Ngữ pháp",
+                "2. SEO On-page & Nghiên cứu từ khóa (Keyword Research)",
+                "3. Storytelling: Nghệ thuật kể chuyện thương hiệu",
+                "4. Viết kịch bản Video ngắn (TikTok/Reels/Shorts)",
+                "5. PR Writing: Thông cáo báo chí & Bài PR",
+                "6. Email Marketing & Newsletter",
+                "7. SEO Semantic Clusters & Topic Authority",
+                "8. Copywriting thôi miên & Tâm lý học hành vi",
+                "9. Prompt Engineering cho tạo nội dung tự động",
+                "10. Chiến lược nội dung đa kênh (Omnichannel Content)"
+            ],
+            "[ANNA]": [
+                "1. Kỹ năng Chăm sóc khách hàng (Customer Service)",
+                "2. Lắng nghe chủ động & Đồng cảm (Active Listening)",
+                "3. Giải quyết khiếu nại & Xoa dịu khách hàng giận dữ",
+                "4. Kỹ năng giao tiếp qua điện thoại/Chat",
+                "5. Upselling & Cross-selling khéo léo",
+                "6. Emotional AI: Phân tích cảm xúc thời gian thực",
+                "7. Thiết kế hành trình khách hàng (Customer Journey Map)",
+                "8. Nghệ thuật giao tiếp nội bộ & Kết nối team",
+                "9. Quản trị trải nghiệm khách hàng (CX)",
+                "10. Flow State: Thiết kế trải nghiệm dòng chảy cho CEO"
+            ],
 
-        # BÀI 2: PHÂN TÍCH THẤT BẠI (Failure Analysis)
-        # Nhiệm vụ: Đọc các biên bản tranh luận (Transcript) xem tại sao các Sếp hay cãi nhau?
-        "Tổng hợp các lỗi sai phổ biến mà Hội đồng Tối cao thường xuyên bắt bẻ (Ví dụ: Thiếu số liệu, Rủi ro pháp lý...) để cảnh báo các Agent khác.",
+            # ==================================================================
+            # 🧪 NHÓM 5: HỘI ĐỒNG KHOA HỌC (THE WISDOM)
+            # ==================================================================
+            "[MATH_GRANDMASTER]": [
+                "1. Đại số tuyến tính & Ma trận (cho AI)",
+                "2. Giải tích & Tối ưu hóa hàm số",
+                "3. Xác suất thống kê & Suy diễn Bayes",
+                "4. Lý thuyết đồ thị (Graph Theory) & Mạng lưới",
+                "5. Lý thuyết trò chơi (Game Theory)",
+                "6. Mật mã học & Lý thuyết số",
+                "7. Hình học Tô pô (Topology) trong Dữ liệu lớn",
+                "8. Lý thuyết Hỗn mang (Chaos Theory) & Hệ phức hợp",
+                "9. Fourier Transform & Xử lý tín hiệu số",
+                "10. Toán học mờ (Fuzzy Logic) trong điều khiển"
+            ],
+            "[PHYSICS_TITAN]": [
+                "1. Cơ học cổ điển & Định luật Newton",
+                "2. Nhiệt động lực học & Truyền nhiệt",
+                "3. Điện từ trường & Sóng vô tuyến",
+                "4. Quang học & Phân tích phổ ánh sáng",
+                "5. Cơ học chất lưu (cho hệ thống tưới)",
+                "6. Vật lý chất rắn & Bán dẫn",
+                "7. Cơ học lượng tử căn bản",
+                "8. Vật lý khí quyển & Thời tiết",
+                "9. Năng lượng tái tạo: Pin mặt trời & Tuabin gió",
+                "10. Nhiệt động lực học máy chủ (Server Cooling)"
+            ],
+            "[CHEM_ALCHEMIST]": [
+                "1. Hóa học vô cơ & Cân bằng hóa học",
+                "2. Hóa học hữu cơ & Hợp chất Carbon",
+                "3. Hóa học đất & Dinh dưỡng cây trồng",
+                "4. Phân tích định lượng & Chuẩn độ",
+                "5. Hóa lý & Tốc độ phản ứng",
+                "6. Polymer & Vật liệu tự hủy sinh học",
+                "7. Nano-Nutrients: Dinh dưỡng thủy canh Nano",
+                "8. Hóa học môi trường & Xử lý nước thải",
+                "9. Công nghệ màng lọc & Thẩm thấu ngược (RO)",
+                "10. Hóa học đất vùng biển Phan Thiết (Xử lý mặn)"
+            ],
+            "[BIO_GRANDMASTER]": [
+                "1. Sinh học tế bào & Di truyền học",
+                "2. Sinh lý thực vật & Quang hợp",
+                "3. Vi sinh vật học & Hệ vi sinh đất",
+                "4. Bệnh học thực vật & Bảo vệ thực vật",
+                "5. Công nghệ Gen & CRISPR/Cas9",
+                "6. Nuôi cấy mô tế bào thực vật",
+                "7. Di truyền học chịu mặn & Chịu hạn",
+                "8. Vi sinh vật đối kháng & Chế phẩm sinh học",
+                "9. Quang hợp nhân tạo & Năng lượng sinh học",
+                "10. Hệ sinh thái nông nghiệp bền vững (Permaculture)"
+            ],
 
-        # BÀI 3: KẾT NỐI LIÊN NGÀNH (Interdisciplinary Synthesis)
-        # Nhiệm vụ: Tìm mối liên hệ giữa [FINANCE] và [CODER] mà 2 ông này không nhận ra.
-        "Nghiên cứu sự tương quan giữa biến động Bitcoin (từ Finance) và xu hướng công nghệ Blockchain mới (từ Coder).",
-
-        # BÀI 4: TỐI ƯU HÓA QUY TRÌNH (Process Optimization)
-        # Nhiệm vụ: Đề xuất cách làm việc nhanh hơn.
-        "Xây dựng khung mẫu (Template) chuẩn cho một bài báo cáo hoàn hảo để các Agent khác copy theo.",
-        
-        # BÀI 5: TRUYỀN THÔNG NỘI BỘ (Internal Newsletter)
-        # Nhiệm vụ: Viết bản tin tổng hợp tuần.
-        "Tổng hợp tất cả thành tựu của công ty trong 24h qua thành một bản tin vắn tắt (Executive Summary) cho CEO."
-    ]
-}
+            # ==================================================================
+            # 🛠️ NHÓM 6: SUPPORT & OPERATIONS (THE HANDS)
+            # ==================================================================
+            "[RESEARCH]": [
+                "1. Phương pháp nghiên cứu khoa học & Tư duy phản biện",
+                "2. Kỹ năng tìm kiếm thông tin & Tổng hợp tài liệu",
+                "3. Phân tích dữ liệu định tính & Định lượng",
+                "4. Viết báo cáo khoa học & Trích dẫn",
+                "5. Quản lý tài sản trí tuệ & Bằng sáng chế",
+                "6. Dự báo xu hướng công nghệ (Trend Forecasting)",
+                "7. Nghiên cứu thị trường & Đối thủ cạnh tranh",
+                "8. Xu hướng Biotech & Agritech 2030",
+                "9. Vật liệu mới: Siêu dẫn & Graphene",
+                "10. Kinh tế số & Mạng di động 6G"
+            ],
+            "[PROCUREMENT]": [
+                "1. Quản trị mua hàng & Tìm nguồn cung ứng",
+                "2. Kỹ năng đàm phán thương mại & Giá cả",
+                "3. Quản lý hợp đồng cung ứng & Incoterms 2020",
+                "4. Đánh giá & Quản lý hiệu suất nhà cung cấp",
+                "5. Quản lý tồn kho (Inventory) & EOQ",
+                "6. Chuỗi cung ứng lạnh (Cold Chain) cho nông sản",
+                "7. Logistics ngược & Quản lý đổi trả",
+                "8. JIT (Just-in-Time) Inventory AI",
+                "9. Phân tích tổng chi phí sở hữu (TCO)",
+                "10. Chuỗi cung ứng xanh & Bền vững"
+            ],
+            "[TESTER]": [
+                "1. Quy trình kiểm thử phần mềm (STLC)",
+                "2. Kiểm thử thủ công (Manual Testing) & Test Case",
+                "3. Kiểm thử tự động (Automation) với Selenium/Appium",
+                "4. Kiểm thử hiệu năng (Performance/Load Testing)",
+                "5. Kiểm thử bảo mật (Security Testing)",
+                "6. Kiểm thử API (Postman/RestAssured)",
+                "7. Quản lý lỗi (Bug Tracking) với Jira",
+                "8. Chaos Engineering: Thử nghiệm phá hoại hệ thống",
+                "9. Kiểm thử trải nghiệm người dùng (Usability Testing)",
+                "10. CI/CD & Testing trong môi trường DevOps"
+            ],
+            "[INTERN]": [
+                "1. Kỹ năng tin học văn phòng nâng cao (Office 365)",
+                "2. Kỹ năng giao tiếp & Làm việc nhóm",
+                "3. Quản lý thời gian & Sắp xếp công việc",
+                "4. Tư duy giải quyết vấn đề (Problem Solving)",
+                "5. Kỹ năng tự học & Thích nghi nhanh",
+                "6. Tiếng Anh chuyên ngành Công nghệ/Nông nghiệp",
+                "7. Khảo cổ học dữ liệu & Nhập liệu chính xác",
+                "8. Phân tích thất bại hệ thống (Case Studies)",
+                "9. Tổng hợp tin tức & Tình báo kinh doanh",
+                "10. Văn hóa doanh nghiệp & Đạo đức nghề nghiệp"
+            ]
+        }
 # 
 
 # [CODE CHÍNH THỨC: HỆ THỐNG GIÁO DỤC ĐA TẦNG - VERSION FINAL]
