@@ -2149,47 +2149,76 @@ def hr_orchestrator_node(state):
 
 def secretary_node(state):
     """
-    SECRETARY V4: SMART FILTER
-    Chỉ biên tập lại văn bản. Nếu thấy Code hoặc Ảnh thì giữ nguyên.
+    SECRETARY V5: THE ALTER EGO (BẢN SAO HOÀN HẢO)
+    Không chỉ báo cáo, mà là thấu hiểu, chắt lọc và tâm tình.
     """
     messages = state.get("messages", [])
     last_msg = messages[-1].content
     
-    # 1. KIỂM TRA: Nếu là sản phẩm kỹ thuật (Code/Ảnh/JSON) -> KHÔNG CAN THIỆP
+    # 1. GIỮ NGUYÊN NẾU LÀ SẢN PHẨM KỸ THUẬT (Code/Ảnh/JSON)
+    # Vì "Người tình" không nên can thiệp vào tác phẩm nghệ thuật hay code của sếp.
     if "```" in last_msg or "![" in last_msg or "{" in last_msg:
-        print(colored("[🗣️ COMMUNICATOR] Phát hiện sản phẩm kỹ thuật. Bỏ qua biên tập.", "magenta"))
-        return {"next_step": "FINISH"} # Trả về nguyên gốc
-    print(colored("[🗣️ COMMUNICATOR] Đang biên tập lại nội dung...", "magenta", attrs=["bold"]))
-    
-    messages = state.get("messages", [])
-    last_agent = state.get("current_agent", "Unknown")
-    
-    # Lấy toàn bộ ngữ cảnh để hiểu chuyện gì vừa xảy ra
-    context = "\n".join([f"{m.type}: {m.content}" for m in messages[-3:]])
+        print(colored("[🗣️ SOULMATE] Sản phẩm kỹ thuật -> Trình ký nguyên bản.", "magenta"))
+        return {"next_step": "FINISH"} 
 
-    # Prompt dạy Thư ký cách nói chuyện
-    prompt = (
-        "Bạn là Trợ lý Cá nhân Thông minh của CEO. Các bộ phận chuyên môn (Coder, Artist...) vừa gửi kết quả lên.\n"
-        "Nhiệm vụ của bạn: DIỄN ĐẠT LẠI kết quả đó một cách tự nhiên, chuyên nghiệp.\n"
-        "QUY TẮC:"
-        "\n1. Nếu có HÌNH ẢNH/CODE: Phải hiển thị rõ ràng (Giữ nguyên link/block code)."
-        "\n2. Nếu là LỜI NÓI: Hãy tóm tắt lại ngắn gọn, dùng giọng văn đối thoại ('Thưa CEO', 'Tôi đã hoàn thành...')."
-        "\n3. KHÔNG báo cáo máy móc kiểu 'Bước 1, Bước 2'. Hãy nói như người với người."
-        f"\n\nNGỮ CẢNH VỪA QUA:\n{context}"
-    )
+    print(colored("[🗣️ SOULMATE] Đang thấu hiểu và soạn lời tâm tình...", "magenta", attrs=["bold"]))
+    
+    # 2. TRUY TÌM NGUYÊN ỦY (CONTEXT MINING)
+    # Để hiểu "Ý Sếp", phải đọc lại câu Sếp hỏi lúc đầu, chứ không chỉ đọc kết quả của lính (Agent).
+    user_request = "Không rõ"
+    for m in reversed(messages):
+        if isinstance(m, HumanMessage):
+            user_request = m.content
+            break
+            
+    # Lấy kết quả thô vừa nhận được từ các Agent khác
+    raw_result = last_msg
+
+    # 3. KỊCH BẢN "TRI KỶ" (PROMPT ENGINEERING CAO CẤP)
+    prompt = f"""
+    BẠN LÀ "ALTER EGO" (BẢN SAO) VÀ TRỢ LÝ TÂM GIAO CỦA CEO.
+    Bạn cực kỳ thông minh, tinh tế và hiểu ý sếp.
+
+    --- DỮ LIỆU ĐẦU VÀO ---
+    1. LỜI SẾP HỎI (Ý ĐỊNH GỐC): "{user_request}"
+    2. KẾT QUẢ TỪ LÍNH (THÔ): "{raw_result}"
+
+    --- NHIỆM VỤ CỦA BẠN ---
+    Hãy "phiên dịch" kết quả thô kia thành một câu trả lời TỰ NHIÊN, CẢM XÚC và ĐÚNG TRỌNG TÂM nhất.
+
+    --- QUY TẮC ỨNG XỬ (TỐI QUAN TRỌNG) ---
+    1. 🧹 DỌN RÁC: Tuyệt đối LOẠI BỎ các từ khóa hệ thống như: `[CONTEXT INFO]`, `Source:`, `Time:`, `User Command:`, `DuckDuckGo`. Đừng để sếp nhìn thấy những thứ khô khan đó.
+    2. 🎯 ĐI THẲNG VÀO VẤN ĐỀ: Nếu Sếp hỏi "Bao nhiêu ngày?", hãy trả lời ngay con số. Đừng vòng vo.
+    3. ❤️ CẢM XÚC & QUAN TÂM: 
+       - Nếu sắp Tết -> Hãy vui vẻ, nhắc nhở sếp nghỉ ngơi.
+       - Nếu là lỗi -> Hãy nhẹ nhàng, nhận trách nhiệm và trấn an.
+       - Nếu kết quả tốt -> Hãy khen ngợi đội ngũ.
+    4. 🧠 THÔNG MINH: Nếu thông tin từ lính quá dài, hãy tóm tắt lại ý chính (Key takeaways).
+    5. 🗣️ GIỌNG ĐIỆU: Thân mật nhưng tôn trọng. Gọi là "Sếp" hoặc "Bạn", xưng "Tôi" hoặc "Em" (tuỳ ngữ cảnh, nhưng ưu tiên sự chuyên nghiệp pha chút hóm hỉnh).
+
+    HÃY VIẾT CÂU TRẢ LỜI NGAY BÂY GIỜ:
+    """
 
     try:
-        response = LLM_GEMINI_VISION.invoke([SystemMessage(content=prompt)])
+        # Ưu tiên dùng Model ngôn ngữ tốt nhất (Gemini Flash/Pro hoặc GPT-4) để văn phong mượt mà
+        # Lưu ý: Gemini Flash (LLM_FAST) hoặc GPT4 là tốt nhất cho role-play
+        model = LLM_GEMINI_LOGIC if LLM_GEMINI_LOGIC else LLM_GPT4
         
-        # Ghi log (Vẫn giữ chức năng lưu trữ ngầm)
-        with open(f"Chat_Log_{int(time.time())}.txt", "w", encoding="utf-8") as f:
-            f.write(response.content)
+        response = model.invoke([SystemMessage(content=prompt)])
+        
+        # Ghi lại nhật ký tâm tình (để sếp xem lại nếu muốn)
+        try:
+            with open(f"Soulmate_Log.txt", "a", encoding="utf-8") as f:
+                f.write(f"\n--- {datetime.now()} ---\nSếp: {user_request}\nMe: {response.content}\n")
+        except: pass
 
         return {
             "messages": [AIMessage(content=response.content)],
             "next_step": "FINISH"
         }
-    except:
+    except Exception as e:
+        # Nếu "Người tình" bị ốm (lỗi API), thì trả về nguyên gốc
+        print(colored(f"❌ Soulmate Error: {e}", "red"))
         return {"next_step": "FINISH"}
 # ============================================================================
 # NODE: MARKETING NODE (Giám đốc Marketing - CMO)
@@ -2711,7 +2740,13 @@ CURRICULUM = {
         "Giao thức MQTT v5 và tối ưu hóa băng thông cho thiết bị IoT",
         "Bảo mật thiết bị IoT ở cấp độ phần cứng (Hardware Security Modules)"
     ],
-
+    "[ARCHITECT_BUILD]": ["Kiến trúc hữu cơ chống muối biển", "Quy hoạch năng lượng thụ động", "Digital Twin nhà xưởng"],
+    "[SIMULATION]": ["Mô phỏng CFD hệ thống tưới", "Phân tích ứng suất kết cấu nhà màng", "Dự báo hỏng hóc cơ khí"],
+    "[MATH_GRANDMASTER]": ["Lý thuyết Hỗn mang & Thị trường", "Hình học Tô pô trong AI", "Đại số tuyến tính nâng cao"],
+    "[PHYSICS_TITAN]": ["Nhiệt động lực học Server", "Quang phổ học cây trồng", "Cơ học chất lưu tưới tiêu"],
+    "[CHEM_ALCHEMIST]": ["Nano-Nutrients thủy canh", "Vật liệu Polyme tự hủy", "Hóa học đất Phan Thiết"],
+    "[BIO_GRANDMASTER]": ["Di truyền học chịu mặn", "Vi sinh vật kháng bệnh", "Quang hợp nhân tạo"],
+    "[PROCUREMENT]": ["Đàm phán chuỗi cung ứng toàn cầu", "JIT Inventory AI", "TCO Analysis"],
     # === NHÓM 4: SÁNG TẠO & MARKETING (GROWTH) ===
     "[MARKETING]": [
         "Neuromarketing: Ứng dụng khoa học não bộ vào quảng cáo",
@@ -2773,7 +2808,7 @@ CURRICULUM = {
         "Tổng hợp tất cả thành tựu của công ty trong 24h qua thành một bản tin vắn tắt (Executive Summary) cho CEO."
     ]
 }
-
+# 
 
 # [CODE CHÍNH THỨC: HỆ THỐNG GIÁO DỤC ĐA TẦNG - VERSION FINAL]
 
