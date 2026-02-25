@@ -10,9 +10,26 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto+Mono&display=swap');
-        body { background-color: #020617; color: #cbd5e1; font-family: 'Roboto Mono', monospace; overflow: hidden; }
+        body { 
+        background-color: #020617; 
+        color: #cbd5e1; 
+        font-family: 'Roboto Mono', monospace; 
+        overflow-y: auto; /* Quan trọng cho mobile */
+        -webkit-tap-highlight-color: transparent;
+    }
+        .mobile-touch-btn {
+        min-height: 44px; /* Tiêu chuẩn Apple */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
         .font-orbitron { font-family: 'Orbitron', sans-serif; }
-        .glass-panel { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(15px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; }
+        .glass-panel { 
+        background: rgba(15, 23, 42, 0.85); 
+        backdrop-filter: blur(10px); 
+        border: 1px solid rgba(59, 130, 246, 0.2); 
+        margin-bottom: 0.5rem;
+    }
         
         .jarvis-reactor {
             width: 80px; height: 80px; border-radius: 50%;
@@ -36,7 +53,7 @@
     </style>
 </head>
 <body class="h-screen p-4 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072')] bg-cover bg-fixed">
-    <div class="absolute inset-0 bg-slate-950/95 z-0"></div>
+    <div class="absolute inset-0 bg-slate-950/5 z-0"></div>
 
     <div class="relative z-10 h-full flex flex-col gap-4">
         <header class="flex justify-between items-center glass-panel p-3 border-b-2 border-blue-500/50 shadow-lg">
@@ -50,85 +67,34 @@
             <div id="connection-status" class="text-[10px] font-bold text-green-500 bg-slate-900 px-4 py-1 rounded border border-green-900/50 font-orbitron">SIGNAL_ACTIVE</div>
         </header>
 
-        <main class="flex flex-1 gap-4 overflow-hidden">
-            <div class="w-1/4 flex flex-col gap-3 h-full">
-                
-                <div class="glass-panel p-4 border-l-2 border-indigo-500 bg-indigo-950/10 shadow-lg">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                            <i class="fas fa-robot animate-pulse"></i> System Autopilot
-                        </h3>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="autoPilotToggle" onchange="toggleAutoPilot()" class="sr-only peer">
-                            <div class="w-7 h-4 bg-slate-700 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-3"></div>
-                        </label>
+        <main class="flex flex-col lg:flex-row flex-1 gap-4 overflow-y-auto lg:overflow-hidden px-2">
+    
+            <div class="w-full lg:w-1/4 flex flex-col gap-3">
+                <button onclick="togglePanel('left-panel')" class="lg:hidden glass-panel p-3 text-[10px] font-bold text-blue-400 flex justify-between items-center">
+                    <span><i class="fas fa-bars mr-2"></i> BẢNG ĐIỀU KHIỂN HỆ THỐNG</span>
+                    <i class="fas fa-chevron-down" id="icon-left-panel"></i>
+                </button>
+
+                <div id="left-panel" class="hidden lg:flex flex-col gap-3 transition-all duration-300">
+                    <div class="glass-panel p-4 border-l-2 border-indigo-500 bg-indigo-950/10 shadow-lg">...</div>
                     </div>
-                    <p class="text-[7px] text-slate-500 italic mt-1">AI tự động săn tin và phân bổ task 24/7</p>
-                </div>
-                <div class="glass-panel p-4 border-t-2 border-blue-500">
-                    <h3 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <i class="fas fa-brain"></i> Supervisor
-                    </h3>
-                    <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-blue-500" placeholder="Chủ đề bài học...">
-                    <div class="flex gap-2">
-                        <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1"><option value="5">05 Tasks</option><option value="15" selected>15 Tasks</option></select>
-                        <button onclick="distributeKnowledge()" id="btnDistribute" class="bg-blue-600 hover:bg-blue-500 text-[9px] font-bold px-3 py-1 rounded transition-all">PHÂN BỔ</button>
-                    </div>
-                    <div id="statusBox" class="text-[8px] text-slate-500 mt-2 italic">Radar: Ready</div>
-                </div>
-
-                <div class="glass-panel p-4 border-t-2 border-red-500 bg-red-950/10 shadow-lg shadow-red-950/20">
-                    <h3 class="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i class="fas fa-crosshairs animate-pulse"></i> Global Hunter Radar</h3>
-                    <input type="text" id="hunterKeyword" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-red-500 shadow-inner" placeholder="Săn dự án (Amazon, AI Tool, Web...)">
-                    <button onclick="activateHunter()" id="btnHunter" class="w-full bg-red-600 hover:bg-red-700 text-[9px] font-bold py-2 rounded transition-all shadow-lg active:scale-95">QUÉT RADAR QUỐC TẾ</button>
-                    <div id="hunterStatus" class="text-[8px] text-slate-500 mt-2 italic font-mono">Radar Status: Idle</div>
-                </div>
-
-                <div class="glass-panel p-4 border-l-4 border-cyan-500 bg-cyan-950/5">
-                    <h3 class="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i class="fas fa-rocket"></i> Mega Pipeline</h3>
-                    <button onclick="startFullProject()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-[9px] font-bold py-2 rounded shadow-lg">KHỞI TẠO SIÊU DỰ ÁN</button>
-                </div>
-
-                <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden border-t-2 border-orange-500 shadow-lg">
-                    <h3 class="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">Satellite Nodes (<span id="worker-count">0</span>)</h3>
-                    <div id="worker-list" class="flex-1 custom-scroll space-y-2 pr-1"></div>
-                </div>
             </div>
 
-            <div class="w-1/2 flex flex-col gap-4 h-full">
+            <div class="w-full lg:w-1/2 flex flex-col gap-4 h-[600px] lg:h-full">
                 <div class="glass-panel flex-1 flex flex-col p-4 overflow-hidden border-b-2 border-blue-500/30 shadow-2xl">
                     <div id="chat-box" class="flex-1 custom-scroll space-y-4 pr-2 font-mono text-sm mb-2"></div>
-                    
-                    <div id="visualizer" class="h-6 flex items-end gap-1 opacity-0 mb-2 transition-opacity">
-                        <div class="w-1 bg-blue-400 animate-bounce h-2"></div>
-                        <div class="w-1 bg-blue-500 animate-bounce h-4"></div>
-                        <div class="w-1 bg-blue-300 animate-bounce h-5"></div>
                     </div>
-
-                    <div class="flex gap-2 p-2 bg-slate-900/50 rounded-full border border-slate-800 shadow-inner">
-                        <button id="mic-btn" class="w-10 h-10 rounded-full bg-slate-800 text-blue-400 flex items-center justify-center transition-all hover:bg-slate-700"><i class="fas fa-microphone"></i></button>
-                        <input type="text" id="user-input" class="flex-1 bg-transparent px-4 text-xs text-white outline-none" placeholder="Nhập lệnh điều hành J.A.R.V.I.S...">
-                        <button id="send-btn" class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all"><i class="fas fa-paper-plane"></i></button>
-                    </div>
-                </div>
             </div>
 
-            <div class="w-1/4 flex flex-col gap-4 h-full">
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="glass-panel p-3 border-l-4 border-green-500 text-center shadow-inner">
-                        <p class="text-[8px] text-slate-500 uppercase font-bold">Revenue</p>
-                        <p id="total-cost" class="text-sm font-bold text-white font-orbitron">$0.0000</p>
+            <div class="w-full lg:w-1/4 flex flex-col gap-4">
+                <button onclick="togglePanel('right-panel')" class="lg:hidden glass-panel p-3 text-[10px] font-bold text-green-400 flex justify-between items-center">
+                    <span><i class="fas fa-chart-line mr-2"></i> THỐNG KÊ CHIẾN DỊCH</span>
+                    <i class="fas fa-chevron-down" id="icon-right-panel"></i>
+                </button>
+
+                <div id="right-panel" class="hidden lg:flex flex-col gap-4 transition-all duration-300">
+                    <div class="grid grid-cols-2 gap-2">...</div>
                     </div>
-                    <div class="glass-panel p-3 border-l-4 border-purple-500 text-center shadow-inner">
-                        <p class="text-[8px] text-slate-500 uppercase font-bold">Brain DNA</p>
-                        <p id="legacy-count" class="text-sm font-bold text-white font-orbitron">0</p>
-                    </div>
-                </div>
-                <div class="glass-panel p-2 h-40 border-t-2 border-emerald-500"><canvas id="growthChart"></canvas></div>
-                <div class="glass-panel flex-1 flex flex-col overflow-hidden shadow-lg">
-                    <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center text-[10px] font-bold uppercase text-blue-300">Activity Log / Global Database</div>
-                    <div id="audit-table-body" class="flex-1 custom-scroll text-[9px] p-2 space-y-2 font-mono"></div>
-                </div>
             </div>
         </main>
     </div>
@@ -175,7 +141,18 @@
                 }
             } catch (e) { console.error("TTS_FAIL"); }
         }
-
+        function togglePanel(panelId) {
+            const panel = document.getElementById(panelId);
+            const icon = document.getElementById('icon-' + panelId);
+            
+            if (panel.classList.contains('hidden')) {
+                panel.classList.remove('hidden');
+                icon.style.transform = 'rotate(180deg)';
+            } else {
+                panel.classList.add('hidden');
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
         async function toggleAutoPilot() {
             const isActive = document.getElementById('autoPilotToggle').checked;
             const status = isActive ? "ON" : "OFF";
