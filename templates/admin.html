@@ -140,53 +140,60 @@
     </div>
 
     <script>
-        const API_URL = window.location.origin; // Tự động nhận diện Cloud/Local
+        const API_URL = window.location.origin; 
         let logsData = [];
 
         async function fetchAuditLogs() {
             try {
-                const res = await fetch(`${API_URL}/api/costs`);
+                // Thêm timestamp để tránh bị Cache trình duyệt
+                const res = await fetch(`${API_URL}/api/costs?t=${Date.now()}`);
                 if (!res.ok) throw new Error("Connection Lost");
                 const data = await res.json();
-                logsData = data;
-                renderTable(data);
-                calculateStats(data);
+                
+                // ĐẢM BẢO DỮ LIỆU LÀ MẢNG
+                logsData = Array.isArray(data) ? data : (data.logs || []);
+                
+                renderTable(logsData);
+                calculateStats(logsData);
             } catch (e) {
-                console.error(e);
-                document.getElementById('audit-table-body').innerHTML = `<tr><td colspan="6" class="text-center py-20 text-red-500 font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i> Mất kết nối trạm chỉ huy Cloud: ${e.message}</td></tr>`;
+                console.error("📡 [AUDIT ERROR]:", e);
+                document.getElementById('audit-table-body').innerHTML = `<tr><td colspan="6" class="text-center py-20 text-red-500 font-bold uppercase tracking-widest"><i class="fas fa-exclamation-triangle mr-2"></i> LỖI ĐỒNG BỘ: ${e.message}</td></tr>`;
             }
         }
 
         function calculateStats(data) {
             if (!data || data.length === 0) return;
-            const total = data.reduce((sum, item) => sum + (item.cost || 0), 0);
+            // Tính toán thông minh: Thử cả hai trường cost hoặc cost_usd
+            const total = data.reduce((sum, item) => sum + (parseFloat(item.cost || item.cost_usd || 0)), 0);
             const last = data[0];
             
             document.getElementById('total-cost').innerText = `$${total.toFixed(6)}`;
             document.getElementById('total-tx').innerText = data.length.toLocaleString();
             document.getElementById('last-agent').innerText = (last.agent_name || last.agent || "SYSTEM").toUpperCase();
-            document.getElementById('last-cost').innerText = `-$${(last.cost || 0).toFixed(6)}`;
+            document.getElementById('last-cost').innerText = `-$${(parseFloat(last.cost || last.cost_usd || 0)).toFixed(6)}`;
         }
 
         function renderTable(data) {
             const tbody = document.getElementById('audit-table-body');
             if (!data || !data.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-20 text-slate-600 italic">📡 Đang quét Sổ Cái trung tâm...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-20 text-slate-600 italic animate-pulse">📡 Đang quét Sổ Cái trung tâm...</td></tr>';
                 return;
             }
 
             tbody.innerHTML = data.map((item, index) => {
                 const agent = (item.agent_name || item.agent || "UNKNOWN").toUpperCase();
                 const result = item.result_summary || item.result || "";
+                const task = item.task_content || item.task || "Nhiệm vụ hệ thống";
+                const tool = item.tool_used || item.tool || "CORE";
+                const costVal = parseFloat(item.cost || item.cost_usd || 0);
                 
-                // KIỂM TRA TRẠNG THÁI (Lọc rác "trích xuất")
-                const isProcessing = result.includes("📂") || result.includes("trích xuất") || result === "None" || result === "";
+                const isProcessing = result.includes("📂") || result.includes("trích xuất") || result.toLowerCase() === "none" || result === "";
                 
                 let displayResult = isProcessing 
                     ? `<span class="text-blue-400 italic animate-pulse flex items-center gap-2"><i class="fas fa-spinner fa-spin text-[8px]"></i> Đang nạp tri thức...</span>`
                     : `<span class="opacity-60 text-[11px]">${result.substring(0, 70).replace(/[#*`>]/g, '')}...</span>`;
 
-                // BINH CHỦNG ĐẶC VỤ COLORING
+                // Hệ thống phân màu Đặc vụ
                 let color = "text-slate-400";
                 if (["ORCHESTRATOR", "STRATEGY", "FINANCE", "LEGAL", "HR_MANAGER"].some(r => agent.includes(r))) color = "text-yellow-400";
                 else if (["CODER", "DATA_ANALYST", "SECURITY", "ARCHITECT_SOFT"].some(r => agent.includes(r))) color = "text-purple-400";
@@ -195,7 +202,7 @@
                 else if (["MATH", "PHYSICS", "CHEM", "BIO"].some(r => agent.includes(r))) color = "text-emerald-400";
 
                 return `
-                    <tr onclick="showDetail(${index})">
+                    <tr onclick="showDetail(${index})" class="hover:bg-slate-800/50 cursor-pointer transition-colors">
                         <td class="px-6 py-4 font-mono text-[10px] text-slate-500">${item.timestamp || "RECENT"}</td>
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-2">
@@ -203,11 +210,11 @@
                                 <span class="font-bold text-xs ${color} tracking-tighter">${agent}</span>
                             </div>
                         </td>
-                        <td class="px-6 py-4 text-xs text-slate-300 font-medium">${item.task_content || item.task || "Nhiệm vụ hệ thống"}</td>
+                        <td class="px-6 py-4 text-xs text-slate-300 font-medium">${task}</td>
                         <td class="px-6 py-4 text-center">
-                            <span class="text-[9px] px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-500 font-mono">${item.tool_used || item.tool || "CORE"}</span>
+                            <span class="text-[9px] px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-500 font-mono">${tool}</span>
                         </td>
-                        <td class="px-6 py-4 text-right font-mono text-xs font-bold text-red-400">-$${(item.cost || 0).toFixed(6)}</td>
+                        <td class="px-6 py-4 text-right font-mono text-xs font-bold text-red-400">-$${costVal.toFixed(6)}</td>
                         <td class="px-6 py-4 font-sans">${displayResult}</td>
                     </tr>`;
             }).join('');
@@ -225,7 +232,7 @@
             let rawContent = item.result_summary || item.result || "";
             let finalContent = "";
 
-            if (!rawContent || rawContent.includes("📂") || rawContent.includes("trích xuất") || rawContent === "None") {
+            if (!rawContent || rawContent.includes("📂") || rawContent.includes("trích xuất") || rawContent.toLowerCase() === "none") {
                 finalContent = `### 📡 Tín hiệu đang được xử lý...\n\n> ⚠️ **THÔNG BÁO:** Đặc vụ đang trong chu kỳ nạp tri thức sâu vào Sổ Cái. Nội dung chi tiết sẽ xuất hiện sau khi nhịp Pulse hoàn tất.`;
             } else {
                 finalContent = rawContent;
@@ -241,13 +248,12 @@
         function closeModalExternally(e) { if (e.target.id === 'detailModal') closeModal(); }
         
         setInterval(() => { 
-            const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString('vi-VN', { hour12: false });
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString('vi-VN', { hour12: false });
         }, 1000);
 
-        // Khởi động
+        // Khởi động hệ thống
         fetchAuditLogs();
-        setInterval(fetchAuditLogs, 5000);
+        setInterval(fetchAuditLogs, 5000); // Tự động làm mới mỗi 5 giây
     </script>
 </body>
 </html>
