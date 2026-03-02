@@ -398,7 +398,7 @@ def log_work_to_db(agent_name=None, task=None, result=None, tool="Universal-AI",
 
     except Exception as e:
         print(f"⚠️ [CRITICAL ERROR] Ghi DB thất bại: {e}")
-        
+
 def ingest_docs_to_memory(folder_path="./data_sources"):
     """
     Quy trình ETL chuyên nghiệp: Trích xuất, Biến đổi và Nạp tri thức vào Vector DB.
@@ -3154,33 +3154,48 @@ CURRICULUM = {
         }
 
 AGENT_ROLES = {
-    # --- NHÓM QUẢN TRỊ & CHIẾN LƯỢC ---
-    "[SUPERVISOR]": "Tổng quản điều phối và Giám sát quy trình LangGraph.",
-    "[ORCHESTRATOR]": "Bộ điều phối 9 tầng và Biệt đội liên ngành.",
-    "[STRATEGY]": "Giám đốc R&D, phân tích xu hướng và lộ trình 2030.",
-    "[INVESTMENT]": "CFO, thẩm định tài chính, duyệt chi và tính ROI.",
-    "[LEGAL]": "Luật sư trưởng, rà soát pháp lý và an toàn AI Act.",
+    # --- NHÓM 1: QUẢN TRỊ & CHIẾN LƯỢC (THE HEAD) ---
+    "[SUPERVISOR]": "Tổng quản điều phối, giám sát quy trình LangGraph và duyệt bài nộp.",
+    "[ORCHESTRATOR]": "Bộ điều phối 9 tầng, quản trị mục tiêu (OKRs) và ra quyết định hệ thống.",
+    "[STRATEGY]": "Giám đốc R&D, phân tích xu hướng thị trường và lộ trình tương lai 2030.",
+    "[FINANCE]": "CFO, quản trị dòng tiền, định giá doanh nghiệp và tài chính Blockchain.",
+    "[HR_MANAGER]": "Giám đốc nhân sự, quản trị hiệu suất, văn hóa doanh nghiệp và luật lao động.",
+    "[LEGAL]": "Luật sư trưởng, rà soát pháp lý Hợp đồng thông minh và Luật AI Act 2026.",
 
-    # --- NHÓM KỸ THUẬT & CỐT LÕI (PHUC VINH APP) ---
-    "[CODER]": "Chuyên gia lập trình, tối ưu code và xử lý Logic hệ thống.",
-    "[HARDWARE]": "Kiến trúc sư phần cứng, thiết kế mạch PCB và linh kiện.",
-    "[IOT]": "Kỹ sư nhúng, vận hành thiết bị thực và giao thức MQTT.",
-    "[ENGINEERING]": "Kỹ sư 3D, thiết kế mô hình kỹ thuật Plotly.",
-    "[TESTER]": "Kiểm định chất lượng, quét lỗi AST và bảo mật code.",
+    # --- NHÓM 2: KỸ THUẬT & CỐT LÕI (THE ENGINE) ---
+    "[CODER]": "Chuyên gia lập trình Rust/Python, tối ưu giải thuật và Microservices.",
+    "[DATA_ANALYST]": "Chuyên gia dữ liệu, xây dựng Pipeline ETL và phân tích dự báo (RAG).",
+    "[SECURITY]": "Chuyên gia bảo mật mạng, kiến trúc Zero Trust và mật mã học hậu lượng tử.",
+    "[ARCHITECT_SOFT]": "Kiến trúc sư phần mềm, thiết kế hệ thống phân tán và Domain-Driven Design.",
+    "[TESTER]": "Kiểm định chất lượng, Chaos Engineering và tự động hóa thử nghiệm phần mềm.",
 
-    # --- NHÓM SÁNG TẠO & TĂNG TRƯỞNG ---
-    "[MARKETING]": "CMO, xây dựng chiến dịch và tối ưu hóa chuyển đổi.",
-    "[ARTIST]": "Giám đốc nghệ thuật, thiết kế Visual và Prompt DALL-E 3.",
-    "[STORY]": "Nhà văn tri kỷ, sáng tạo nội dung và kịch bản nhân văn.",
-    "[SECRETARY]": "Thư ký tri kỷ (Soulmate), tinh lọc báo cáo trình CEO.",
-    "[PUBLISHER]": "Biên tập viên, đóng gói hồ sơ dự án tổng thể.",
+    # --- NHÓM 3: HARDWARE & IOT - PHAN THIẾT (THE BODY) ---
+    "[HARDWARE]": "Kiến trúc sư phần cứng, thiết kế mạch PCB và linh kiện bán dẫn chịu mặn.",
+    "[IOT]": "Kỹ sư nhúng, vận hành mạng cảm biến LoRaWAN và Edge AI (TinyML).",
+    "[ARCHITECT_BUILD]": "Kiến trúc sư công trình, thiết kế nhà màng nông nghiệp bền vững chịu bão.",
+    "[SIMULATION]": "Chuyên gia mô phỏng CFD, phân tích ứng suất vật liệu và Digital Twin.",
 
-    # --- NHÓM HỖ TRỢ & HÀNH CHÍNH ---
-    "[RESEARCH]": "Trinh sát dữ liệu, thám mã Internet (Zero-Cost Search).",
-    "[PROCUREMENT]": "Trợ lý thu mua, khảo giá thị trường và Logistics.",
-    "[ACADEMY]": "Monitor đào tạo, quản lý XP và tiến hóa Agent.",
+    # --- NHÓM 4: SÁNG TẠO & TĂNG TRƯỞNG (THE VOICE) ---
+    "[MARKETING]": "CMO, xây dựng chiến dịch Digital Marketing và tối ưu phễu chuyển đổi.",
+    "[SALES]": "Giám đốc kinh doanh, đàm phán B2B/B2G và dự báo doanh số bằng AI.",
+    "[ARTIST]": "Giám đốc nghệ thuật, thiết kế Visual 3D, UI/UX và Generative AI Art.",
+    "[CONTENT]": "Chuyên gia nội dung, Storytelling thương hiệu và kịch bản Omnichannel.",
+    "[ANNA]": "Đại sứ trải nghiệm (Soulmate), thiết kế hành trình khách hàng và EQ Support.",
+
+    # --- NHÓM 5: HỘI ĐỒNG KHOA HỌC (THE WISDOM) ---
+    "[MATH_GRANDMASTER]": "Đại sư Toán học, xử lý ma trận AI, lý thuyết trò chơi và mật mã.",
+    "[PHYSICS_TITAN]": "Chuyên gia Vật lý, nhiệt động lực học và năng lượng tái tạo cho Server.",
+    "[CHEM_ALCHEMIST]": "Chuyên gia Hóa học, phân tích đất mặn Phan Thiết và dinh dưỡng Nano.",
+    "[BIO_GRANDMASTER]": "Chuyên gia Sinh học, công nghệ Gen CRISPR và nông nghiệp bền vững.",
+
+    # --- NHÓM 6: HỖ TRỢ & HÀNH CHÍNH (THE HANDS) ---
+    "[RESEARCH]": "Trinh sát dữ liệu, tổng hợp tri thức Internet và dự báo xu hướng Biotech.",
+    "[PROCUREMENT]": "Trợ lý thu mua, quản lý chuỗi cung ứng lạnh và Logistics nông sản.",
+    "[ACADEMY]": "Monitor đào tạo, quản lý chỉ số XP, Level và tiến hóa của các đặc vụ AI.",
+    "[INTERN]": "Thực tập sinh đa năng, hỗ trợ nhập liệu, khảo cổ dữ liệu và tổng hợp tin tức.",
+    "[SECRETARY]": "Thư ký tri kỷ, tinh lọc báo cáo từ các Node để trình CEO (The Architect).",
+    "[PUBLISHER]": "Biên tập viên, đóng gói hồ sơ dự án và xuất bản báo cáo tri thức."
 }
-
 async def auto_learning_cycle():
     global IS_SYSTEM_BUSY, LAST_INTERACTION_TIME, ACADEMY_IDX 
     
@@ -3722,23 +3737,54 @@ async def synergetic_learning_loop(main_topic):
     
     return final_thesis
 
-# 🌌 GIAO THỨC SÁNG THẾ: HỢP ĐIỂM TRI THỨC VÔ TẬN
 async def spawn_new_expert(needed_expertise: str):
     """
-    Tự động tạo ra một Agent mới với bộ kỹ năng đặc định.
+    [GENESIS v9.0]: Tự động tạo ra một Agent mới, xây dựng lộ trình học 
+    và lưu trữ vĩnh viễn vào Database.
     """
     print(colored(f"✨ [GENESIS] Đang khởi tạo Chuyên gia mới: {needed_expertise}...", "cyan"))
     
-    # AI tự định nghĩa Curriculum cho Agent mới này
-    spawn_prompt = f"Xây dựng khung năng lực và 10 chuyên đề đào tạo cho Agent chuyên về: {needed_expertise}"
-    new_curriculum = await LLM_GPT4.ainvoke(spawn_prompt)
+    # 1. AI tự định nghĩa Khung năng lực (Curriculum)
+    spawn_prompt = f"""
+    Bạn là Giám đốc Học viện AI. Hãy xây dựng 10 chuyên đề đào tạo chuyên sâu 
+    (danh sách ngắn gọn) cho một Agent chuyên trách về: {needed_expertise}.
+    Định dạng trả về: Chỉ danh sách 10 dòng, không giải thích thêm.
+    """
+    new_curriculum_res = await LLM_GPT4.ainvoke(spawn_prompt)
+    lessons = [line.strip() for line in new_curriculum_res.content.split('\n') if line.strip()][:10]
     
-    # Ghi danh vào hệ thống nhân sự ảo
-    agent_id = f"NEW_EXPERT_{int(time.time())}"
-    AGENT_ROLES[agent_id] = needed_expertise
-    CURRICULUM[agent_id] = extract_list(new_curriculum.content)
+    # 2. Định danh và Ghi danh vào bộ nhớ RAM
+    agent_tag = f"[{needed_expertise.upper().replace(' ', '_')[:15]}]"
+    agent_desc = f"Chuyên gia tự trị về {needed_expertise}"
     
-    return agent_id
+    AGENT_ROLES[agent_tag] = agent_desc
+    CURRICULUM[agent_tag] = lessons
+    
+    # 3. GHI DANH VÀO SỔ CÁI (DATABASE) - Đảm bảo không mất khi Restart
+    from server import sync_curriculum_to_db
+    knowledge_base = " | ".join(lessons)
+    
+    try:
+        db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+        conn = sqlite3.connect(db_path, timeout=30)
+        c = conn.cursor()
+        
+        # Tiêm chuyên gia mới vào bảng agent_status
+        c.execute("""
+            INSERT INTO agent_status (role_tag, xp, current_topic, knowledge_base, last_updated)
+            VALUES (?, 100, ?, ?, DATETIME('now'))
+            ON CONFLICT(role_tag) DO UPDATE SET
+                knowledge_base = excluded.knowledge_base,
+                last_updated = excluded.last_updated
+        """, (agent_tag, f"Khởi tạo: {lessons[0]}", knowledge_base))
+        
+        conn.commit()
+        conn.close()
+        print(colored(f"✅ [DATABASE] Chuyên gia {agent_tag} đã được nhập tịch vĩnh viễn!", "green"))
+    except Exception as e:
+        print(colored(f"⚠️ [GENESIS ERROR] Không thể lưu chuyên gia vào DB: {e}", "red"))
+    
+    return agent_tag
 
 # 🛠️ ĐỊNH NGHĨA: EXTRACT LIST (BỘ LỌC CẤU TRÚC DANH SÁCH)
 def extract_list(content: str) -> list:
