@@ -177,29 +177,47 @@ class HunterRequest(BaseModel): # <--- Giải pháp cho lỗi gạch vàng
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
-        # 1. CẤU HÌNH DATABASE (FIX LỖI SPLIT BRAIN)
-        # Ép buộc dùng SQLite trên Disk để đồng bộ dữ liệu
-        if os.path.exists(RENDER_DISK_PATH):
-            os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
-        else:
-            os.environ["DATABASE_URL"] = f"sqlite:///{DB_PATH}"
+        # 1. ĐƯỜNG DẪN DATABASE
+        self.db_path = DB_PATH # DB_PATH đã khai báo ở trên là /var/data/...
+        
+        # 🛡️ GIAO THỨC CỨU HỘ: KIỂM TRA FILE TRƯỚC KHI KẾT NỐI
+        if os.path.exists(self.db_path):
+            try:
+                # Thử kết nối bằng thư viện gốc để kiểm tra tính toàn vẹn
+                check_conn = sqlite3.connect(self.db_path)
+                check_conn.execute("SELECT 1")
+                check_conn.close()
+                print(f"✅ [STORAGE] Database hợp lệ: {self.db_path}")
+            except Exception as e:
+                # NẾU LỖI: Xóa file hỏng ngay lập tức để Server không bị Crash
+                print(f"🚨 [CRITICAL] File Database bị hỏng ({e}). Đang tái cấu trúc...")
+                try:
+                    os.remove(self.db_path)
+                except:
+                    pass 
 
-        self.db_url = os.environ["DATABASE_URL"]
+        # 2. CẤU HÌNH DATABASE URL
+        self.db_url = f"sqlite:///{self.db_path}"
 
-        # 2. Cấu hình Engine
+        # 3. KHỞI TẠO ENGINE (VỚI CÁC THÔNG SỐ AN TOÀN)
         self.engine = create_engine(
             self.db_url, 
             connect_args={
                 "check_same_thread": False,
-                "timeout": 30 # Đợi 30s nếu DB đang bị khóa
+                "timeout": 30 
             },
-            pool_recycle=600 
+            pool_pre_ping=True # Tự động kiểm tra kết nối còn sống hay không
         )
 
-        # Thêm lệnh này vào ngay sau khi tạo kết nối trong init_db
-        with self.get_connection() as conn:
-            conn.execute(text("PRAGMA journal_mode=WAL;")) # Chế độ ghi nhật ký trước (Cực kỳ an toàn)
-            conn.execute(text("PRAGMA synchronous=NORMAL;"))
+        # 4. KÍCH HOẠT CHẾ ĐỘ WAL (Bọc trong try-except để tuyệt đối không gây sập Server)
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA journal_mode=WAL;"))
+                conn.execute(text("PRAGMA synchronous=NORMAL;"))
+                conn.commit()
+                print("⚡ [SYSTEM] Database Mode: WAL (High Performance)")
+        except Exception as e:
+            print(f"⚠️ [WARNING] Không thể kích hoạt WAL mode: {e}")
     
     def get_connection(self):
         return self.engine.connect()
@@ -2780,3 +2798,4 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
+
