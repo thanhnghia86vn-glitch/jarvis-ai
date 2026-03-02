@@ -169,7 +169,8 @@ class RegisterInfo(BaseModel):
 class CourseRequest(BaseModel):
     subject: str      # Chủ đề lớn (VD: Học về ReactJS)
     num_tasks: int = 10 # Số lượng task muốn chia nhỏ 
-
+    reward_per_task: float = 0.05
+    
 class HunterRequest(BaseModel): # <--- Giải pháp cho lỗi gạch vàng
     keyword: str
 # ==========================================
@@ -177,47 +178,46 @@ class HunterRequest(BaseModel): # <--- Giải pháp cho lỗi gạch vàng
 # ==========================================
 class DatabaseManager:
     def __init__(self): 
-        # 1. ĐƯỜNG DẪN DATABASE
-        self.db_path = DB_PATH # DB_PATH đã khai báo ở trên là /var/data/...
-        
-        # 🛡️ GIAO THỨC CỨU HỘ: KIỂM TRA FILE TRƯỚC KHI KẾT NỐI
+        # 1. Xác định đường dẫn (Ưu tiên Cloud Disk)
+        self.db_path = DB_PATH
+        self.db_url = f"sqlite:///{self.db_path}"
+
+        # 2. KIỂM TRA TÍNH HỢP LỆ (Giao thức tự chữa lành)
         if os.path.exists(self.db_path):
             try:
-                # Thử kết nối bằng thư viện gốc để kiểm tra tính toàn vẹn
-                check_conn = sqlite3.connect(self.db_path)
-                check_conn.execute("SELECT 1")
-                check_conn.close()
-                print(f"✅ [STORAGE] Database hợp lệ: {self.db_path}")
+                # Thử mở bằng thư viện gốc để test xem có phải database thật không
+                import sqlite3
+                test_conn = sqlite3.connect(self.db_path)
+                test_conn.execute("SELECT 1")
+                test_conn.close()
+                print(colored(f"✅ [DATABASE] File hợp lệ: {self.db_path}", "green"))
             except Exception as e:
-                # NẾU LỖI: Xóa file hỏng ngay lập tức để Server không bị Crash
-                print(f"🚨 [CRITICAL] File Database bị hỏng ({e}). Đang tái cấu trúc...")
+                # Nếu hỏng: Xóa ngay để Server có thể khởi động với file mới sạch
+                print(colored(f"🚨 [CRITICAL] Database hỏng ({e}). Đang tái cấu trúc...", "red", attrs=["bold"]))
                 try:
                     os.remove(self.db_path)
                 except:
-                    pass 
+                    pass
 
-        # 2. CẤU HÌNH DATABASE URL
-        self.db_url = f"sqlite:///{self.db_path}"
-
-        # 3. KHỞI TẠO ENGINE (VỚI CÁC THÔNG SỐ AN TOÀN)
+        # 3. Khởi tạo Engine với các tham số tối ưu
         self.engine = create_engine(
             self.db_url, 
-            connect_args={
-                "check_same_thread": False,
-                "timeout": 30 
-            },
-            pool_pre_ping=True # Tự động kiểm tra kết nối còn sống hay không
+            connect_args={"check_same_thread": False, "timeout": 30},
+            pool_pre_ping=True  # Tự động kiểm tra kết nối trước khi dùng
         )
 
-        # 4. KÍCH HOẠT CHẾ ĐỘ WAL (Bọc trong try-except để tuyệt đối không gây sập Server)
-        try:
-            with self.engine.connect() as conn:
-                conn.execute(text("PRAGMA journal_mode=WAL;"))
-                conn.execute(text("PRAGMA synchronous=NORMAL;"))
-                conn.commit()
-                print("⚡ [SYSTEM] Database Mode: WAL (High Performance)")
-        except Exception as e:
-            print(f"⚠️ [WARNING] Không thể kích hoạt WAL mode: {e}")
+        # 4. KÍCH HOẠT CHẾ ĐỘ WAL (Cách an toàn nhất)
+        # Thay vì ép trong __init__, ta dùng listener để kích hoạt mỗi khi kết nối
+        from sqlalchemy import event
+        @event.listens_for(self.engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+            except:
+                pass
+            cursor.close()
     
     def get_connection(self):
         return self.engine.connect()
@@ -670,6 +670,7 @@ async def read_admin(request: Request):
 @app.get("/index")
 async def redirect_index():
     return RedirectResponse(url="/")
+
 @app.get("/org", response_class=HTMLResponse)
 async def read_org_chart(request: Request):
     try:
@@ -681,10 +682,22 @@ async def read_org_chart(request: Request):
         raw = c.fetchall()
         agents = []
         for a in raw:
-            xp = a['xp'] or 0
+            # 1. Ép kiểu tuyệt đối về Integer, nếu None hoặc lỗi thì mặc định là 0
+            try:
+                xp = int(a['xp'] or 0)
+            except (ValueError, TypeError):
+                xp = 0
+
+            # 2. Tính toán Level và Tiến trình (Progress) an toàn
+            level = (xp // 1000) + 1  # Dùng // để chia lấy nguyên, chuẩn xác hơn trong Python 3
+            progress = (xp % 1000) / 10 # Tính % tiến độ của level hiện tại (0-100%)
+
             agents.append({
-                "name": a['role_tag'], "xp": xp, "level": int(xp/1000)+1,
-                "topic": a['current_topic'], "progress": (xp%1000)/10
+                "name": a['role_tag'], 
+                "xp": xp, 
+                "level": level,
+                "topic": a['current_topic'] if a['current_topic'] else "Đang chờ nhiệm vụ...",
+                "progress": progress
             })
 
         c.execute("SELECT agent_name, task_content, result_summary, timestamp FROM work_logs WHERE tool_used LIKE '%SUPREME%' OR tool_used LIKE '%DEBATE%' ORDER BY id DESC LIMIT 1")
@@ -737,6 +750,76 @@ async def api_auto_reply(customer_email: str, x_api_key: str = Header(None)):
 
     return {"status": "success" if success else "error"}
 
+# THÊM VÀO api_server.py TRÊN RENDER
+@app.post("/api/sync/pulse")
+async def sync_pulse(data: dict, x_api_key: str = Header(None)):
+    """
+    Giao thức NHỊP ĐẬP ĐỒNG BỘ: Hợp nhất tri thức từ Local lên Cloud.
+    Sử dụng Connection Pool để chống lỗi 'Database is locked'.
+    """
+    # 1. Bảo mật tối cao
+    if x_api_key != ADMIN_SECRET: 
+        return JSONResponse(status_code=403, content={"error": "Unauthorized Access"})
+    
+    new_logs = data.get("logs", [])
+    agent_states = data.get("agents", [])
+    
+    if not new_logs and not agent_states:
+        return {"status": "NO_DATA", "msg": "Không có dữ liệu mới để đồng bộ."}
+
+    try:
+        # 2. Sử dụng db_manager đã có để tận dụng WAL Mode và Connection Pool
+        with db_manager.get_connection() as conn:
+            # Dùng Transaction để đảm bảo dữ liệu không bị hỏng nếu đứt mạng
+            from sqlalchemy import text
+            
+            # 3. Vá các lượt học mới (Dùng INSERT OR IGNORE chống trùng lặp di sản)
+            # Lưu ý: Map đúng tên cột trong JSON gửi từ Local lên
+            # 3. Vá các lượt học mới (Dùng INSERT OR IGNORE chống trùng lặp di sản)
+            for log in new_logs:
+                # --- [BỔ SUNG BỘ LỌC] ---
+                res_content = log.get('result_summary') or log.get('result')
+                
+                # NẾU nội dung chỉ là thông báo tạm thời HOẶC quá ngắn, ta bỏ qua không nạp vào Cloud
+                if not res_content or "trích xuất" in res_content or len(str(res_content)) < 50:
+                    continue 
+                # -------------------------
+
+                conn.execute(text("""
+                    INSERT OR IGNORE INTO work_logs 
+                    (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                    VALUES (:ts, :agent, :task, :tool, :cost, :res)
+                """), {
+                    "ts": log.get('timestamp'),
+                    "agent": log.get('agent_name') or log.get('agent'),
+                    "task": log.get('task_content') or log.get('task'),
+                    "tool": log.get('tool_used') or log.get('tool'),
+                    "cost": float(log.get('cost') or 0.0),
+                    "res": res_content
+                })
+            
+            # 4. Cập nhật XP và Tầng cho Đặc vụ (Lấy mức cao nhất giữa 2 máy)
+            for agent in agent_states:
+                # Dùng MAX(xp, :new_xp) để Cloud không bao giờ bị tụt Level nếu máy Local reset
+                conn.execute(text("""
+                    UPDATE agent_status 
+                    SET xp = MAX(IFNULL(xp, 0), :new_xp), 
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE role_tag = :tag
+                """), {
+                    "new_xp": int(agent.get('xp') or 0),
+                    "tag": agent.get('role_tag') or agent.get('agent_name')
+                })
+            
+            conn.commit() # Chốt hạ dữ liệu
+            
+        print(f"📡 [SYNC] Đã hợp nhất {len(new_logs)} lượt học mới vào Tầng 9 Cloud.")
+        return {"status": "SYNCED", "added": len(new_logs), "agents_updated": len(agent_states)}
+        
+    except Exception as e:
+        print(f"❌ [SYNC ERROR] Thất bại: {str(e)}")
+        return JSONResponse(status_code=500, content={"status": "ERROR", "msg": str(e)})
+    
 async def auto_knowledge_diver():
     """
     KNOWLEDGE DIVER v5.0: Hệ thống tự hành săn tìm tri thức & dự án toàn cầu.
@@ -2573,6 +2656,8 @@ class ProjectHunter:
                 continue
                 
         return count
+
+
     @staticmethod
     async def generate_proposal(proj_title, proj_summary):
         """
@@ -2621,6 +2706,33 @@ async def start_hunting_api(req: HunterRequest, x_api_key: str = Header(None)):
 # ==========================================
 # 🚀 SYSTEM ROUTES
 # ==========================================
+def heart_beat():
+    LOCAL_DB = "ai_corp_projects.db"
+    CLOUD_URL = "https://jarvis-ai-qklx.onrender.com/api/sync/pulse"
+    SECRET = "ai_corp_secret_123" # Khớp với ADMIN_SECRET trên Cloud
+
+    while True:
+        try:
+            conn = sqlite3.connect(LOCAL_DB)
+            conn.row_factory = sqlite3.Row
+            # Lấy 20 task mới nhất để đồng bộ
+            logs = conn.execute("SELECT * FROM work_logs ORDER BY rowid DESC LIMIT 20").fetchall()
+            agents = conn.execute("SELECT role_tag, xp FROM agent_status").fetchall()
+            conn.close()
+
+            payload = {
+                "logs": [dict(r) for r in logs], # Map dữ liệu chuẩn
+                "agents": [dict(a) for a in agents]
+            }
+
+            res = requests.post(CLOUD_URL, json=payload, headers={"x-api-key": SECRET})
+            if res.status_code == 200:
+                print(f"📡 [SYNC] Đã đồng bộ tri thức thành công: {res.json().get('added')} logs.")
+            
+        except Exception as e:
+            print(f"⚠️ [SYNC ERROR] Đang đợi Server: {e}")
+            
+        time.sleep(300) # Nghỉ 5 phút mỗi nhịp đập
 
 @app.get("/health")
 async def health_check():
@@ -2798,4 +2910,3 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
-
