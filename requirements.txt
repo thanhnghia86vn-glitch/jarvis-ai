@@ -34,7 +34,5 @@ gtts
 fpdf2
 termcolor
 cryptography
-
-
-
-
+aiosqlite
+logger
