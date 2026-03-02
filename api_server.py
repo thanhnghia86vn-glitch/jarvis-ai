@@ -893,26 +893,45 @@ async def buy_product(req: BuyRequest):
 # === API ADMIN & FINANCE (QUAN TRỌNG: ĐÃ THÊM API THIẾU) ===
 @app.get("/api/costs")
 async def get_costs_api():
-    """API dữ liệu cho bảng Admin"""
+    """
+    API DỮ LIỆU TÀI CHÍNH v9.0: 
+    - Kháng lỗi NoneType.
+    - Tự động Map Key cho Frontend v8.0.
+    - Tối ưu hiệu suất bằng cơ chế Row Factory.
+    """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        # Lấy 50 log mới nhất
-        rows = conn.execute("SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary FROM work_logs ORDER BY id DESC LIMIT 50").fetchall()
+        # Sử dụng đường dẫn DB chuẩn đã thiết lập cho Cloud
+        db_target = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else DB_PATH
+        
+        conn = sqlite3.connect(db_target, timeout=20)
+        conn.row_factory = sqlite3.Row  # Cho phép truy cập dữ liệu theo tên cột
+        
+        # Lấy 100 bản ghi thay vì 50 để CEO có cái nhìn bao quát hơn
+        query = """
+            SELECT timestamp, agent_name, task_content, tool_used, cost, result_summary 
+            FROM work_logs 
+            ORDER BY rowid DESC LIMIT 100
+        """
+        rows = conn.execute(query).fetchall()
+        conn.close()
         
         logs = []
         for r in rows:
-            row_dict = dict(r)
-            row_dict['agent'] = row_dict['agent_name'] # Map key cho frontend
-            row_dict['task'] = row_dict['task_content']
-            row_dict['tool'] = row_dict['tool_used']
-            row_dict['cost_usd'] = row_dict['cost'] or 0.0
-            row_dict['result'] = row_dict['result_summary']
-            logs.append(row_dict)
+            d = dict(r)
+            # Map Key linh hoạt để Dashboard không bao giờ bị lỗi "Undefined"
+            logs.append({
+                "timestamp": d.get("timestamp", "--:--"),
+                "agent": d.get("agent_name", "UNKNOWN"),
+                "task": d.get("task_content", "Nhiệm vụ không tên"),
+                "tool": d.get("tool_used", "AI-CORE"),
+                "cost_usd": float(d.get("cost") or 0.0),
+                "result": d.get("result_summary") or "📂 Dữ liệu đang được đồng bộ..."
+            })
             
-        conn.close()
         return logs
-    except: return []
+    except Exception as e:
+        print(colored(f"⚠️ [API ERROR] Lỗi truy xuất chi phí: {e}", "red"))
+        return []
 
 @app.get("/api/stats")
 async def get_system_stats():
