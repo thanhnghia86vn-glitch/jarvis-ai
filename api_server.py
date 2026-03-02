@@ -2666,13 +2666,13 @@ def get_latest_audit_report():
         logger.error(f"🚨 [REPORT ERROR]: {str(e)}")
         return f"⚠️ Thưa CEO, không thể truy xuất hồ sơ: {str(e)}."
 @app.get("/api/admin/pull_legacy_data")
-async def pull_legacy_data(x_api_key: str = Header(None)):
+async def pull_legacy_data():  
     """
     [LEGACY MERGER]: Tự động kéo toàn bộ tri thức Tầng 9 từ URL Backup 
     về ổ cứng vĩnh viễn của Render.
     """
-    if x_api_key != ADMIN_SECRET: 
-        return {"status": "Auth Fail", "msg": "CEO mới có quyền hợp nhất tri thức!"}
+    # if x_api_key != ADMIN_SECRET: 
+    #     return {"status": "Auth Fail", "msg": "CEO mới có quyền hợp nhất tri thức!"}
 
     backup_url = "https://jarvis-ai-qklx.onrender.com/api/backup/download_all"
     target_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
