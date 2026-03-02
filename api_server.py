@@ -1,5 +1,6 @@
 import glob
 import os
+import logger
 import pandas as pd
 import sqlite3
 import uuid
@@ -18,6 +19,7 @@ import zipfile
 import hashlib
 import requests
 import feedparser
+import traceback
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
@@ -43,6 +45,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from identity_core import jarvis_identity
 from marketing_ai import marketing_agent
+from research_agent import ResearchAgent
+from main import run_nexus_sync
+
 # [QUAN TRỌNG]: Đã thêm LLM_SUPERVISOR và log_training_data
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("JARVIS_v4.5")
@@ -83,7 +88,7 @@ SERVER_READY = False
 ai_app = None
 CHAT_MODEL = None
 client = None
-
+AI_BOOT_ERROR = None
 
 try:
     from main import (
@@ -95,14 +100,14 @@ try:
     SERVER_READY = True
     CHAT_MODEL = LLM_GEMINI_LOGIC
     logger.info("✅ CORE AI MODULES: LOADED & CHAT_MODEL SYNCED")
-except Exception as e:
-    # --- BẮT LỖI VÀ GHI LẠI ---
-    import traceback
-    AI_BOOT_ERROR = traceback.format_exc() # Lưu toàn bộ dấu vết lỗi
-    logger.error(f"⚠️ CORE AI FAILED TO LOAD: {AI_BOOT_ERROR}")
-    # Set safe defaults
+except Exception:
+    # --- SỬ DỤNG TRACEBACK ĐÃ IMPORT ---
+    AI_BOOT_ERROR = traceback.format_exc() # Lấy toàn bộ "dấu vân tay" của lỗi
+    logger.error(f"⚠️ CORE AI FAILED TO LOAD:\n{AI_BOOT_ERROR}")
+    
+    # Set safe defaults để server không bị crash hoàn toàn
     ai_app = vector_db = LLM_GEMINI_LOGIC = LLM_GEMINI_VISION = None
-
+    AI_AVAILABLE = False
 try:
     CHAT_MODEL = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=os.environ.get("GOOGLE_API_KEY"))
 except:
@@ -183,9 +188,17 @@ class DatabaseManager:
         # 2. Cấu hình Engine
         self.engine = create_engine(
             self.db_url, 
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30 # Đợi 30s nếu DB đang bị khóa
+            },
             pool_recycle=600 
         )
+
+        # Thêm lệnh này vào ngay sau khi tạo kết nối trong init_db
+        with self.get_connection() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL;")) # Chế độ ghi nhật ký trước (Cực kỳ an toàn)
+            conn.execute(text("PRAGMA synchronous=NORMAL;"))
     
     def get_connection(self):
         return self.engine.connect()
@@ -250,17 +263,31 @@ class DatabaseManager:
                 """))
                 
                 # --- 2. TỰ ĐỘNG NÂNG CẤP (AUTO-MIGRATE) ---
-                # Đoạn này sẽ cố gắng thêm cột mới. Nếu có rồi thì bỏ qua (Pass).
-                # Đây là cách sạch nhất để sửa lỗi "no such column" mà không mất dữ liệu cũ.
-                # Kỹ thuật này giúp bạn không bị lỗi "no such column"
-                try: conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN reward REAL DEFAULT 0.0")); print("✅ Đã thêm cột giá tiền (reward)"); 
+                try: 
+                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN reward REAL DEFAULT 0.0"))
+                    print("✅ [MIGRATE] Đã thêm cột giá tiền (reward) cho learning_tasks") 
                 except: pass
                 
-                try: conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN task_type TEXT DEFAULT 'RESEARCH'")); print("✅ Đã thêm cột loại việc (task_type)"); 
+                try: 
+                    conn.execute(text("ALTER TABLE learning_tasks ADD COLUMN task_type TEXT DEFAULT 'RESEARCH'"))
+                    print("✅ [MIGRATE] Đã thêm cột loại việc (task_type) cho learning_tasks") 
+                except: pass
+
+                # B. NÂNG CẤP BẢNG work_logs (SỬA LỖI CRASH ACADEMY)
+                # Thêm cột xp_gain để lưu điểm kinh nghiệm mà Agent vừa học được
+                try: 
+                    conn.execute(text("ALTER TABLE work_logs ADD COLUMN xp_gain INTEGER DEFAULT 0"))
+                    print("✅ [MIGRATE] Đã thêm cột điểm kinh nghiệm (xp_gain) cho work_logs")
+                except: pass
+
+                # Thêm cột thread_id để Dashboard có thể lọc lịch sử chat theo phiên
+                try: 
+                    conn.execute(text("ALTER TABLE work_logs ADD COLUMN thread_id TEXT DEFAULT 'default'"))
+                    print("✅ [MIGRATE] Đã thêm cột thread_id cho work_logs")
                 except: pass
 
                 conn.commit()
-            print(colored("✅ DATABASE SCHEMA: UP-TO-DATE (Có giá tiền & loại việc)", "green"))
+            print(colored("✅ DATABASE SCHEMA: UP-TO-DATE (Đã hỗ trợ XP & Threading)", "green"))
             
         except Exception as e:
             print(colored(f"❌ DB INIT ERROR: {e}", "red"))
@@ -693,84 +720,80 @@ async def api_auto_reply(customer_email: str, x_api_key: str = Header(None)):
 
 async def auto_knowledge_diver():
     """
-    KNOWLEDGE DIVER V2.1: Hệ thống tự hành săn tìm tri thức & dự án toàn cầu.
-    Đã fix lỗi tham chiếu DDGS và tối ưu hóa logic bóc tách.
+    KNOWLEDGE DIVER v5.0: Hệ thống tự hành săn tìm tri thức & dự án toàn cầu.
+    Đã tối ưu hóa cho môi trường Cloud và tích hợp Nexus Core.
     """
     global IS_AUTOPILOT_ON
     
-    # 1. Trạng thái kiểm soát nghiêm ngặt
     if not IS_AUTOPILOT_ON or not CHAT_MODEL:
         return
 
-    print(colored("\n🌊 [AUTOPILOT] Radar thợ lặn đang quét internet...", "cyan", attrs=["bold"]))
+    print(colored("\n🌊 [AUTOPILOT] Radar thợ lặn đang lặn xuống các tầng dữ liệu...", "cyan", attrs=["bold"]))
     
-    # 2. Các vùng săn chiến lược (Có thể mở rộng thêm)
     hunting_grounds = [
         "AI Multi-Agent Systems 2026",
         "Blockchain Security Vulnerabilities",
         "Python Automation for Business",
-        "Global Digital Currency Trends",
+        "DeepSeek and Large Language Model Trends",
         "AI-driven SaaS Development"
     ]
     
     target_sector = random.choice(hunting_grounds)
     
     try:
-        # 3. Thu thập dữ liệu thực tế (Sử dụng DDGS với cơ chế an toàn)
-        print(colored(f"📡 [SCANNING] Target: {target_sector}...", "yellow"))
-        
-        search_content = ""
-        try:
+        # 1. THU THẬP DỮ LIỆU (Chạy trong Threadpool để không treo Server)
+        def _fetch_web_data():
             with DDGS() as ddgs_engine:
-                # Tìm 5 tin tức/dự án nóng nhất
-                # Chuyển kết quả về list ngay lập tức để tránh lỗi generator
-                search_results = list(ddgs_engine.text(f"{target_sector} latest news 2026", max_results=5))
-                for r in search_results:
-                    search_content += f"- {r['title']}: {r['body']}\n"
-        except Exception as search_err:
-            logger.warning(f"⚠️ Search Engine Warning: {search_err}")
-            search_content = "Không thể truy cập internet. Sử dụng trí tuệ nội tại."
+                results = list(ddgs_engine.text(f"{target_sector} latest news 2026", max_results=5))
+                return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
 
-        # 4. AI Supervisor thẩm định mục tiêu (Deep Analysis)
+        print(colored(f"📡 [SCANNING] Radar đang quét: {target_sector}...", "yellow"))
+        search_content = await run_in_threadpool(_fetch_web_data)
+
+        # 2. PHÂN TÍCH CHIẾN LƯỢC (Sử dụng bộ não Nexus thay vì AI đơn lẻ)
         analysis_prompt = f"""
         [SYSTEM]: Bạn là Chief Strategy Officer của J.A.R.V.I.S.
         [DATA]: {search_content}
-        
         Nhiệm vụ: Phân tích dữ liệu thực tế về '{target_sector}'. 
         Xác định 1 chủ đề tiềm năng nhất để học tập hoặc làm dự án thầu.
-        Trả về JSON: {{"subject": "tên ngắn gọn", "focus": "mục tiêu", "difficulty": 1-5}}
+        Trả về DUY NHẤT định dạng JSON: {{"subject": "tên ngắn gọn", "focus": "mục tiêu", "difficulty": 1-5}}
         """
         
-        ai_res = await CHAT_MODEL.ainvoke(analysis_prompt)
-        # Làm sạch JSON để xử lý parse chính xác
-        raw_content = ai_res.content.replace("```json", "").replace("```", "").strip()
-        intel_data = json.loads(raw_content)
+        # Gọi Nexus Core để hội chẩn (Sync bọc Async)
+        from main import run_nexus_sync
+        raw_res = await run_in_threadpool(lambda: run_nexus_sync(analysis_prompt, "autopilot_brain"))
         
+        # 3. TRÍCH XUẤT JSON AN TOÀN (Bọc thép bằng Regex)
+        
+        json_match = re.search(r'\{.*\}', raw_res, re.DOTALL)
+        if not json_match:
+            raise ValueError("AI không trả về định dạng JSON chuẩn")
+            
+        intel_data = json.loads(json_match.group())
         final_subject = intel_data.get("subject", target_sector)
         difficulty = intel_data.get("difficulty", 2)
         
-        # 5. Phân bổ nhiệm vụ với định giá thông minh
-        # Công thức: $0.02 cơ bản + ($0.01 x độ khó)
+        # 4. ĐỊNH GIÁ & PHÂN BỔ NHIỆM VỤ
         smart_reward = round(0.02 + (difficulty * 0.01), 3)
         
-        print(colored(f"🚀 [AUTO-FEED] Đang bóc tách chủ đề: {final_subject}", "green"))
+        print(colored(f"🚀 [AUTO-FEED] Đang nạp di sản: {final_subject}", "green"))
         
-        # Gửi lệnh thực thi vào Pipeline chính
+        # Gọi hàm phân bổ nhiệm vụ đã có
         tasks_count = await execute_distribute_knowledge(
             subject=f"🚀 [AUTO] {final_subject}", 
-            num_tasks=8, 
+            num_tasks=6, 
             reward=smart_reward
         )
         
-        logger.info(f"✅ Autopilot: Đã phân phối {tasks_count} nhiệm vụ mới vào hệ thống.")
+        # 5. GHI NHỚ VÀO VECTOR DB (Học ngay lập tức)
+        if AI_AVAILABLE:
+            await run_in_threadpool(lambda: learn_knowledge(f"Kiến thức mới từ Autopilot về {final_subject}: {search_content}"))
+
+        logger.info(f"✅ Autopilot: Đã nạp {tasks_count} kiến thức mới vào bộ não trung tâm.")
 
     except Exception as e:
-        logger.error(f"❌ Autopilot Error: {str(e)}")
-        # Fallback: Đảm bảo J.A.R.V.I.S vẫn hoạt động dù có lỗi xảy ra
-        try:
-            fallback_res = await CHAT_MODEL.ainvoke(f"Nghĩ nhanh 1 chủ đề công nghệ cho {target_sector}")
-            await execute_distribute_knowledge(f"🚀 [FALLBACK] {fallback_res.content[:50]}", 3, 0.01)
-        except: pass
+        logger.error(f"❌ Autopilot Critical Error: {str(e)}")
+        # Cơ chế tự phục hồi: Ghi log lỗi để CEO kiểm tra sau
 # --- API DATA & FEATURES ---
 # ==========================================
 # API STORE & TÀI CHÍNH (Đã tối ưu cho store.html)
@@ -932,6 +955,44 @@ async def get_system_stats():
         print(f"Lỗi Stats: {e}")
         return {"products": 0, "revenue": 0, "expense": 0, "balance": 0}
 
+@app.get("/api/stats/heatmap")
+async def get_heatmap_api():
+    """
+    [HEATMAP API] Trả về dữ liệu mật độ dự án cho Dashboard.
+    Sử dụng trực tiếp db_manager đã có trong server.py.
+    """
+    try:
+        query = text("""
+            SELECT strftime('%H', timestamp) as hour, 
+                   COUNT(*) as count, 
+                   SUM(reward) as total_value
+            FROM learning_tasks 
+            WHERE topic LIKE '%[PROJECT]%' 
+            AND timestamp > datetime('now', '-24 hours')
+            GROUP BY hour
+            ORDER BY hour ASC
+        """)
+        
+        with db_manager.get_connection() as conn:
+            stats = conn.execute(query).fetchall()
+            
+        if not stats:
+            return {"status": "empty", "data": []}
+
+        # Format dữ liệu gửi về Dashboard
+        result = []
+        for s in stats:
+            result.append({
+                "hour": s[0],
+                "count": s[1],
+                "value": round(s[2], 2)
+            })
+            
+        return {"status": "success", "data": result}
+    except Exception as e:
+        logger.error(f"Heatmap API Error: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/admin/send_me_report")
 async def send_report_to_ceo(subject: str, message: str, x_api_key: str = Header(None)):
         """API cho phép J.A.R.V.I.S gửi mail trực tiếp cho CEO"""
@@ -1063,69 +1124,65 @@ async def check_wealth_api():
 # 6. HỆ THỐNG XỬ LÝ CHAT ĐA LUỒNG (ASYNC CORE)
 # ==========================================
 
-# --- 1. WORKER: NHÂN VIÊN CHẠY NGẦM (Làm việc bất kể ngày đêm/tắt máy) ---
 async def background_ai_worker(task_id: str, user_msg_text: str, thread_id: str):
     """
-    Hàm này chạy độc lập với API. Dù CEO tắt trình duyệt, nó vẫn chạy trên Server.
+    BG WORKER v5.0: Chạy độc lập, không sợ Timeout, sử dụng 100% công suất 17 Agent.
     """
-    print(colored(f"⚙️ [BG WORKER] Bắt đầu xử lý Task {task_id}...", "yellow"))
+    print(colored(f"⚙️ [BG WORKER] Đang tiếp nhận Task {task_id}...", "yellow"))
     
     try:
-        # A. Cập nhật trạng thái: ĐANG XỬ LÝ
+        # A. Cập nhật trạng thái khởi động
         with db_manager.get_connection() as conn:
-            conn.execute(text("INSERT OR REPLACE INTO async_tasks (task_id, status, result, timestamp) VALUES (:id, 'PROCESSING', '', :time)"), 
-                         {"id": task_id, "time": datetime.now()})
+            conn.execute(text("""
+                INSERT OR REPLACE INTO async_tasks (task_id, status, result, timestamp) 
+                VALUES (:id, 'PROCESSING', 'J.A.R.V.I.S đang hội chẩn...', :time)
+            """), {"id": task_id, "time": datetime.now()})
             conn.commit()
 
-        # B. Chuẩn bị ngữ cảnh (Memory)
-        memory_context = ""
-        if MEMORY_AVAILABLE:
-            try:
-                memory_context = await run_in_threadpool(lambda: recall_relevant_memories(user_msg_text))
-            except: pass
-
-        # C. Đóng gói tin nhắn chuẩn
-        final_input_content = f"""
-        [CONTEXT INFO]:
-        Location: Phan Thiet | Time: {datetime.now().strftime('%H:%M %d/%m/%Y')}
-        Relevant Memories: {memory_context}
+        # B. THỰC THI QUA NEXUS CORE (Điểm thay đổi quan trọng nhất)
+        # Chúng ta dùng run_in_threadpool để gọi run_nexus_sync (vốn là hàm sync)
+        # Việc này giúp 17 Agent chạy ngầm mà không làm treo Server FastAPI
+        from main import run_nexus_sync
         
-        [USER COMMAND]:
-        {user_msg_text}
-        """
+        print(colored(f"🧠 [NEXUS CORE] Task {task_id} đang được 17 Agent xử lý...", "blue"))
         
-        human_msg = HumanMessage(content=final_input_content)
-        config = {"configurable": {"thread_id": thread_id}}
+        # Bước này có thể mất vài phút nếu là dự án lớn
+        ai_reply = await run_in_threadpool(lambda: run_nexus_sync(user_msg_text, thread_id))
 
-        # D. GỌI AI (Bước tốn thời gian nhất)
-        # Hệ thống có thể mất 2-3 phút ở đây, nhưng không sao cả
-        output = await ai_app.ainvoke({"messages": [human_msg]}, config=config)
-        ai_reply = output["messages"][-1].content
-
-        # E. Lưu ký ức (Hậu xử lý)
-        if MEMORY_AVAILABLE:
-            try:
-                # Chạy thẳng hàm đồng bộ vì đang ở trong worker riêng rồi
-                extract_and_save_memory(user_msg_text, ai_reply)
-            except: pass
-
-        # F. HOÀN TẤT: Cập nhật Database
+        # C. CẬP NHẬT KẾT QUẢ VÀ TÀI CHÍNH
         with db_manager.get_connection() as conn:
-            # Dùng tham số bind để tránh lỗi ký tự đặc biệt trong SQL
+            # 1. Lưu kết quả cuối cùng vào bảng Task
             conn.execute(text("UPDATE async_tasks SET status='DONE', result=:res WHERE task_id=:id"), 
                          {"res": ai_reply, "id": task_id})
+            
+            # 2. Ghi log vào work_logs để Finance nhảy số (Viên gạch vàng)
+            # Trích xuất Agent từ reply nếu có (ví dụ [CODER])
+            agent_tag = "NEXUS_WORKER"
+            if "[" in ai_reply[:20]:
+                agent_tag = ai_reply.split("]")[0].replace("[", "")
+
+            conn.execute(text("""
+                INSERT INTO work_logs (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                VALUES (:ts, :agent, :task, :tool, :cost, :res)
+            """), {
+                "ts": datetime.now().strftime("%H:%M %d/%m/%Y"),
+                "agent": agent_tag,
+                "task": f"[ASYNC] {user_msg_text[:50]}",
+                "tool": "ASYNC_NEXUS_V5",
+                "cost": 0.005, # Task chạy ngầm thường nặng hơn nên set cost cao hơn
+                "res": ai_reply[:1000]
+            })
             conn.commit()
             
-        print(colored(f"✅ [BG WORKER] Task {task_id} hoàn thành!", "green"))
+        print(colored(f"✅ [BG WORKER] Task {task_id} hoàn thành và đã ghi nhận di sản!", "green"))
 
     except Exception as e:
-        error_msg = f"Lỗi hệ thống: {str(e)}"
-        print(colored(f"❌ [BG WORKER] Task {task_id} thất bại: {e}", "red"))
+        error_msg = f"Hệ thống gặp sự cố khi chạy ngầm: {str(e)}"
+        logger.error(f"❌ [BG WORKER ERROR]: {error_msg}")
         with db_manager.get_connection() as conn:
             conn.execute(text("UPDATE async_tasks SET status='ERROR', result=:err WHERE task_id=:id"), 
                          {"err": error_msg, "id": task_id})
             conn.commit()
-
 # --- 2. API GIAO VIỆC (DISPATCHER) ---
 @app.post("/api/chat_async")
 async def chat_async_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
@@ -1152,6 +1209,76 @@ async def chat_async_endpoint(request: ChatRequest, background_tasks: Background
     # Trả mã phiếu cho Dashboard cầm
     return {"task_id": task_id, "status": "QUEUED", "message": "Đã tiếp nhận. Đang xử lý ngầm..."}
 
+# ==========================================
+# 1. TRẠM ĐIỀU PHỐI NEXUS (DÀNH CHO DASHBOARD CHAT)
+# ==========================================
+@app.post("/api/chat_nexus")
+async def chat_nexus_endpoint(request: ChatRequest):
+    """
+    Điểm chạm tối cao kết nối Dashboard với 17 Agent trong main.py.
+    Ghi nhật ký trực tiếp vào hệ thống kiểm toán tài sản.
+    """
+    try:
+        # 1. Thực thi lệnh qua bộ não trung tâm
+        # Dùng run_in_threadpool để không chặn Event Loop của FastAPI
+        reply = await run_in_threadpool(lambda: run_nexus_sync(request.message, request.thread_id))
+        
+        # 2. KIỂM TOÁN TÀI SẢN (Wealth Update)
+        # Tự động trích xuất Agent nào vừa làm việc (ví dụ: [CODER])
+        agent_match = re.search(r'\[(.*?)\]', reply)
+        active_agent = agent_match.group(1) if agent_match else "SUPERVISOR"
+        
+        # Ghi log vào DB để Tab FINANCE hiển thị
+        with db_manager.get_connection() as conn:
+            conn.execute(text("""
+                INSERT INTO work_logs (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                VALUES (:ts, :agent, :task, :tool, :cost, :res)
+            """), {
+                "ts": datetime.now().strftime("%H:%M %d/%m/%Y"),
+                "agent": active_agent,
+                "task": request.message[:100],
+                "tool": "NEXUS_v5",
+                "cost": 0.0025, # Chi phí ước tính cho mỗi truy vấn AI
+                "res": reply[:500] # Lưu bản tóm tắt để tiết kiệm dung lượng
+            })
+            conn.commit()
+
+        return {"reply": reply, "agent": active_agent, "status": "SUCCESS"}
+    except Exception as e:
+        logger.error(f"Nexus Error: {e}")
+        return {"reply": f"❌ Lỗi hệ thống: {str(e)}", "status": "ERROR"}
+# ==========================================
+# 2. PHÒNG PHẪU THUẬT CODE (REFACTOR API)
+# ==========================================
+@app.post("/api/refactor")
+async def code_refactor_endpoint(file: UploadFile = File(...), wish: str = Form(...)):
+    """
+    Endpoint chuyên biệt để xử lý nâng cấp Code dung lượng lớn (như Dashboard.py)
+    """
+    content = await file.read()
+    code_text = content.decode("utf-8", errors='ignore')
+    
+    prompt = f"""@J.A.R.V.I.S [ARCHITECT]: Thực hiện phẫu thuật file {file.filename}.
+    Mong muốn của CEO: {wish}
+    Code gốc: {code_text}"""
+    
+    # Chạy quy trình nâng cấp qua main.py
+    new_code_reply = await run_in_threadpool(lambda: run_nexus_sync(prompt, "refactor_session"))
+    
+    return {"reply": new_code_reply}
+
+# ==========================================
+# 3. WEBSOCKET: ĐỒNG BỘ ICON AGENT (HUD SYNC)
+# ==========================================
+# (Cập nhật trong hàm websocket_nexus của ngài)
+# Thêm đoạn này trước khi gửi JSON về Dashboard
+async def broadcast_agent_status(agent_name: str):
+    await manager.broadcast(json.dumps({
+        "type": "AGENT_STATUS",
+        "agent": agent_name,
+        "status": "ACTIVE"
+    }))
+
 # --- 3. API KIỂM TRA (TRACKER) ---
 @app.get("/api/task_status/{task_id}")
 async def get_task_status(task_id: str):
@@ -1170,43 +1297,84 @@ async def get_task_status(task_id: str):
             return {"status": "NOT_FOUND", "result": None}
     except Exception as e:
         return {"status": "ERROR", "result": str(e)}
-# --- API ĐĂNG KÝ ---
+# --- Thợi đào 
 @app.post("/api/economy/register_miner")
 async def register_miner_endpoint(info: RegisterInfo):
+    # RegisterInfo cần thêm trường: worker_id
     conn = sqlite3.connect(DB_PATH)
     try:
-        # 1. Kiểm tra user trùng
-        cursor = conn.execute("SELECT 1 FROM users WHERE username=?", (info.username,))
-        if cursor.fetchone():
-            return JSONResponse(status_code=400, content={"status": "error", "msg": "Tên đăng nhập đã tồn tại!"})
+        # 1. Kiểm tra xem máy này (Worker_ID) đã đăng ký chưa
+        # Một người (email) có thể có nhiều Worker_ID khác nhau
+        cursor = conn.execute("SELECT api_key FROM users WHERE worker_id=?", (info.worker_id,))
+        existing_node = cursor.fetchone()
+        
+        if existing_node:
+            # Nếu máy này đã có trong hệ thống, trả về Key cũ thay vì tạo mới
+            return {
+                "status": "success",
+                "api_key": existing_node[0],
+                "msg": "Máy này đã được đăng ký trước đó. Khôi phục Key thành công."
+            }
 
-        # 2. Sinh Key mới
-        new_key = f"sk-{uuid.uuid4().hex}"
+        # 2. Sinh Key mới cho máy mới
+        new_key = f"sk-{uuid.uuid4().hex[:12].upper()}"
         
         # 3. Gộp thông tin ngân hàng
         bank_full = f"{info.bank_name} - {info.account_number}"
 
-        # 4. Lưu vào DB
+        # 4. Lưu vào DB (Bổ sung thêm cột worker_id)
+        # Ngài cần chạy lệnh SQL: ALTER TABLE users ADD COLUMN worker_id TEXT;
         conn.execute(
-            "INSERT INTO users (username, api_key, email, bank_info) VALUES (?, ?, ?, ?)",
-            (info.username, new_key, info.email, bank_full)
+            """INSERT INTO users (username, worker_id, api_key, email, bank_info, created_at) 
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (info.username, info.worker_id, new_key, info.email.lower(), bank_full, datetime.now())
         )
         conn.commit()
         
-        print(colored(f"🆕 Thợ đào mới: {info.username} ({bank_full})", "cyan"))
+        print(colored(f"🆕 Node Mới: {info.worker_id} | Chủ: {info.email}", "cyan"))
         
         return {
             "status": "success",
             "api_key": new_key,
-            "msg": "Đăng ký thành công! Key đã được lưu."
+            "msg": "Đăng ký Node thành công!"
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "msg": str(e)})
     finally:
         conn.close()
 
+async def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    """
+    [SECURITY LAYER v2.3]: Xác thực linh hoạt cho cả Admin và Thợ đào.
+    """
+    if not x_api_key:
+        raise HTTPException(status_code=403, detail="⛔ Thiếu mã lệnh quân sự.")
+
+    # Cho phép Admin toàn quyền
+    if x_api_key == ADMIN_SECRET:
+        return "ADMIN"
+
+    # Kiểm tra trong Database xem có phải Key của thợ đào không
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.execute("SELECT username FROM users WHERE api_key=?", (x_api_key,))
+        user = cursor.fetchone()
+        if user:
+            return user[0] # Trả về tên thợ đào
+        
+        logger.error(f"⚠️ Truy cập trái phép với Key: {x_api_key}")
+        raise HTTPException(status_code=403, detail="⛔ Key không hợp lệ hoặc đã bị thu hồi.")
+    finally:
+        conn.close()
+
+
+
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
+async def chat_endpoint(
+    request: ChatRequest, 
+    background_tasks: BackgroundTasks,
+    x_api_key: str = Depends(verify_api_key) # <--- KHÓA BẢO VỆ TẠI ĐÂY
+):
     set_system_busy()
     if not AI_AVAILABLE:
         return {"reply": "⚠️ Hệ thống AI đang khởi động. Vui lòng đợi 30s."}
@@ -1215,82 +1383,65 @@ async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks)
         user_msg_text = str(request.message).strip()
         thread_id = str(request.thread_id) if request.thread_id else "default_session"
         
-        # --- 1. XỬ LÝ NHANH (GREETINGS & COMMANDS) ---
-        # Giữ lại logic chào hỏi nhanh để tiết kiệm tiền AI
+        # --- 1. XỬ LÝ NHANH ---
         greetings = ["chào", "hi", "hello", "alo"]
         if user_msg_text.lower() in greetings:
              return {"reply": "Chào CEO! J.A.R.V.I.S đã sẵn sàng nhận lệnh."}
 
-        # --- 2. CHUẨN BỊ KÝ ỨC (MEMORY) ---
+        # --- 2. CHUẨN BỊ KÝ ỨC ---
         memory_context = ""
         if MEMORY_AVAILABLE:
-            # Lấy ký ức chạy ngầm để không làm chậm chat
             try:
                 memory_context = await run_in_threadpool(lambda: recall_relevant_memories(user_msg_text))
                 print(colored(f"🧠 Ký ức kích hoạt: {len(memory_context)} chars", "magenta"))
             except: pass
 
-        # --- 3. ĐÓNG GÓI TIN NHẮN (THE FIX) ---
-        # Thay vì gộp chuỗi, ta giữ nguyên User Message để OpenAI hiểu đây là lệnh mới
-        # Context được chèn vào System Message hoặc Memory của Graph (tùy cấu hình Graph của ngài)
-        # Nhưng để an toàn nhất, ta kẹp Context vào tin nhắn nhưng vẫn giữ role Human
-        
+        # --- 3. ĐÓNG GÓI TIN NHẮN & GHI NHẬT KÝ TÀI SẢN ---
+        # Khi đưa lên Online, ta cần ghi log ngay cả khi đang chat để theo dõi chi phí
+        timestamp = datetime.now().strftime('%H:%M %d/%m/%Y')
         final_input_content = f"""
-        [CONTEXT INFO]:
-        Location: Phan Thiet
-        Time: {datetime.now().strftime('%H:%M %d/%m/%Y')}
-        Relevant Memories: {memory_context}
-        
-        [USER COMMAND]:
-        {user_msg_text}
+        [CONTEXT INFO]: Location: Phan Thiet | Time: {timestamp}
+        [MEMORY]: {memory_context}
+        [USER COMMAND]: {user_msg_text}
         """
         
-        # Tạo đối tượng tin nhắn chuẩn LangChain
         human_msg = HumanMessage(content=final_input_content)
-        
-        # Cấu hình phiên làm việc
         config = {"configurable": {"thread_id": thread_id}}
 
-        print(colored(f"📥 INPUT: {user_msg_text[:50]}...", "cyan"))
+        # --- 4. GỌI BỘ NÃO TRUNG TÂM ---
+        output = await ai_app.ainvoke({"messages": [human_msg]}, config=config)
+        ai_reply = output["messages"][-1].content
+        
+        # --- 5. TỰ ĐỘNG CẬP NHẬT DI SẢN (QUAN TRỌNG) ---
+        # Ghi nhận mỗi câu chat là một lần đóng góp tri thức vào DB
+        with db_manager.get_connection() as conn:
+            conn.execute(text("""
+                INSERT INTO work_logs (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                VALUES (:ts, :agent, :task, :tool, :cost, :res)
+            """), {
+                "ts": timestamp,
+                "agent": "ORCHESTRATOR",
+                "task": user_msg_text[:100],
+                "tool": "CHAT_v2_SECURE",
+                "cost": 0.0015,
+                "res": ai_reply[:500]
+            })
+            conn.commit()
 
-        # Phải dùng ainvoke (Async Invoke) vì các Node trong main.py là async def
-        output = await ai_app.ainvoke(
-            {"messages": [human_msg]}, 
-            config=config
-        )
-        
-        # --- 5. TRÍCH XUẤT KẾT QUẢ ---
-        last_message = output["messages"][-1]
-        ai_reply = last_message.content
-        
-        # --- 6. HẬU XỬ LÝ (LƯU KÝ ỨC & LOG) ---
+        # --- 6. HẬU XỬ LÝ (KÝ ỨC) ---
         if MEMORY_AVAILABLE:
             background_tasks.add_task(extract_and_save_memory, user_msg_text, ai_reply)
             
         return {
             "status": "success", 
             "reply": ai_reply,
-            "agent": "J.A.R.V.I.S v2.0"
+            "agent": "J.A.R.V.I.S v2.0_SECURE"
         }
 
     except Exception as e:
-        error_msg = str(e)
-        print(colored(f"❌ CHAT ERROR: {error_msg}", "red"))
-        
-        # Tự động sửa lỗi 400 bằng cách reset nhẹ hội thoại
-        if "Last message must have role user" in error_msg:
-            return {
-                "reply": "⚠️ Lỗi đồng bộ hội thoại. Tôi đã tự động sắp xếp lại bộ nhớ. Vui lòng gửi lại câu lệnh vừa rồi."
-            }
-            
-        return {"reply": f"💥 Lỗi hệ thống: {error_msg}"}
-
-async def verify_api_key(x_api_key: Optional[str] = Header(None)):
-    """Middleware kiểm tra bảo mật"""
-    # Logic: Nếu có gửi key thì check, nếu không gửi (Dev mode) thì bỏ qua hoặc chặn tùy CEO
-    if x_api_key and x_api_key != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="⛔ SAI MẬT MÃ QUÂN SỰ (WRONG API KEY)")
-    return x_api_key
+        # Log lỗi chi tiết nhưng không trả về lỗi nhạy cảm cho người dùng lạ
+        logger.error(f"❌ CHAT ERROR: {str(e)}")
+        return JSONResponse(status_code=500, content={"reply": "💥 Hệ thống đang bận xử lý dữ liệu di sản. Vui lòng thử lại sau."})
 
 @app.post("/api/plan_project")
 async def plan_project_endpoint(
@@ -1777,231 +1928,337 @@ async def perform_auto_audit(task_topic, task_content, worker_result):
 @app.post("/api/worker/submit_task")
 async def worker_submit_task(res: TaskResult, x_api_key: str = Header(None)):
     """
-    HỆ THỐNG KIỂM ĐỊNH & THANH TOÁN TỰ ĐỘNG (v8.0)
-    Quy trình: Auth -> Validation -> Auto-Audit (AI) -> Payment -> Knowledge Ingestion -> Logging.
+    HỆ THỐNG KIỂM ĐỊNH & THANH TOÁN TỰ ĐỘNG V9.0
+    Tích hợp: Hash-Deduplication, AI-Audit JSON, Dynamic Payment & Node Health Tracking.
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    
     final_pay = 0.0 
     audit_score = 0
-    audit_comment = "Chưa qua kiểm định"
+    audit_comment = "Đang chờ kiểm định"
 
     try:
-        # 1. XÁC THỰC NGƯỜI DÙNG
+        # 1. XÁC THỰC NGƯỜI DÙNG (Tra cứu từ bảng users thay vì ADMIN_SECRET)
         c.execute("SELECT username, balance FROM users WHERE api_key=?", (x_api_key,))
-        user = c.fetchone()
-        if x_api_key != ADMIN_SECRET and not user:
-            raise HTTPException(status_code=403, detail="API Key không hợp lệ!")
+        user_row = c.fetchone()
+        
+        # Cho phép Admin hoặc User có Key hợp lệ
+        if x_api_key != ADMIN_SECRET and not user_row:
+            raise HTTPException(status_code=403, detail="⛔ Truy cập bị chặn: API Key không hợp lệ!")
+        
+        username = user_row[0] if user_row else "ADMIN"
 
         # 2. KIỂM TRA THÔNG TIN NHIỆM VỤ
         c.execute("SELECT reward, task_type, topic, status, content FROM learning_tasks WHERE id=?", (res.task_id,))
         task_info = c.fetchone()
-        if not task_info: return {"status": "error", "msg": "Task không tồn tại"}
-        if task_info[3] == 'DONE': return {"status": "error", "msg": "Task đã hoàn thành trước đó!"}
+        if not task_info: 
+            return {"status": "error", "msg": "Task không tồn tại"}
+        if task_info[3] == 'DONE': 
+            return {"status": "error", "msg": "Task này đã được người khác hoàn thành!"}
 
         agreed_reward, task_type, topic, _, original_requirement = task_info
 
-        # 3. MODULE AUTO-AUDIT (KIỂM ĐỊNH CHẤT LƯỢNG BẰNG AI)
-        print(colored(f"🛡️ [AUDIT] Đang kiểm định Task #{res.task_id} từ {res.worker_id}...", "cyan"))
+        # 3. CHỐNG TRÙNG LẶP (DEDUPLICATION) BẰNG MÃ BĂM (HASH)
+        incoming_hash = res.metadata.get("hash") if res.metadata else None
+        if incoming_hash:
+            c.execute("SELECT id FROM work_logs WHERE result_hash = ?", (incoming_hash,))
+            if c.fetchone():
+                print(colored(f"⚠️ [SPAM] Phát hiện nộp trùng nội dung từ Node {res.worker_id}", "yellow"))
+                return {"status": "error", "msg": "Nội dung này đã tồn tại trong hệ thống tri thức!"}
+
+        # 4. MODULE AUTO-AUDIT (KIỂM ĐỊNH CHẤT LƯỢNG BẰNG AI)
+        print(colored(f"🛡️ [AUDIT] Đang thẩm định Task #{res.task_id} cho {username}...", "cyan"))
         
+        # Prompt ép AI đọc hiểu cấu trúc JSON mà Worker Pro gửi lên
         audit_prompt = f"""
-        Bạn là Senior QA & Tech Lead. Hãy thẩm định bài nộp của Worker:
-        - YÊU CẦU GỐC: {original_requirement}
-        - BÀI NỘP CỦA WORKER: {res.result_content}
-        
-        Hãy chấm điểm trên thang 100. Trả về JSON: {{"score": 0-100, "reason": "nhận xét ngắn"}}
-        Nếu bài nộp quá ngắn, sơ sài hoặc không đúng yêu cầu, hãy cho dưới 50 điểm.
+        Nhiệm vụ: {topic}
+        Yêu cầu gốc: {original_requirement}
+        Bài nộp từ Worker: {res.result_content}
+
+        Yêu cầu thẩm định:
+        1. Nếu là cấu trúc JSON hợp lệ, hãy đánh giá cao tính chuyên nghiệp.
+        2. Chấm điểm từ 0-100 dựa trên độ chính xác và chiều sâu thông tin.
+        3. Trả về JSON duy nhất: {{"score": score, "reason": "nhận xét"}}
         """
         
         try:
             audit_res = await CHAT_MODEL.ainvoke(audit_prompt)
-            # Làm sạch chuỗi JSON từ AI
             clean_json = audit_res.content.replace("```json", "").replace("```", "").strip()
             audit_data = json.loads(clean_json)
             audit_score = audit_data.get("score", 0)
-            audit_comment = audit_data.get("reason", "Không có nhận xét.")
+            audit_comment = audit_data.get("reason", "N/A")
         except Exception as e:
-            logger.error(f"Audit AI Error: {e}")
-            audit_score = 70  # Fallback score nếu AI bận
-            audit_comment = "Hệ thống Audit bận, phê duyệt tạm thời."
+            logger.error(f"Audit Error: {e}")
+            audit_score = 75 # Điểm tối thiểu nếu hệ thống AI bận
+            audit_comment = "Phê duyệt dự phòng (Hệ thống Audit bận)."
 
-        # 4. QUYẾT ĐỊNH THANH TOÁN (LOGIC KINH DOANH)
-        # Chỉ trả tiền nếu điểm Audit >= 60
+        # 5. QUYẾT ĐỊNH GIẢI NGÂN (DYNAMIC BILLING)
         is_passed = audit_score >= 60
         verdict = "APPROVED" if is_passed else "REJECTED"
         
         if is_passed:
-            # Kiểm tra trùng lặp (Duplicate Check)
-            c.execute("SELECT id FROM work_logs WHERE result_summary = ?", (res.result_content,))
-            if c.fetchone():
-                final_pay = agreed_reward * 0.1 # Phạt 90% nếu copy bài cũ
-                audit_comment += " [PHÁT HIỆN TRÙNG LẶP - PHẠT 90%]"
-            else:
-                final_pay = agreed_reward # Trả đủ nếu bài mới và tốt
+            # Tính Bonus nếu làm nhanh (dưới 15 giây)
+            duration = res.metadata.get("duration_sec", 60) if res.metadata else 60
+            speed_bonus = 1.1 if duration < 15 else 1.0
+            
+            # Tiền thực nhận = Giá gốc * (Điểm chất lượng %) * Thưởng tốc độ
+            final_pay = round(agreed_reward * (audit_score / 100) * speed_bonus, 5)
 
-            # CẬP NHẬT VÍ TIỀN THỰC
-            if user:
-                username = user[0]
+            # CẬP NHẬT VÍ TIỀN TRONG DB
+            if user_row:
                 c.execute("UPDATE users SET balance = balance + ? WHERE username=?", (final_pay, username))
-                print(colored(f"💰 [PAYMENT] Đã giải ngân ${final_pay} cho {username}", "green"))
         else:
             final_pay = 0.0
-            print(colored(f"❌ [REJECTED] Task #{res.task_id} không đạt chất lượng ({audit_score}đ)", "red"))
 
-        # 5. CẬP NHẬT TRẠNG THÁI HỆ THỐNG
-        new_status = 'DONE' if is_passed else 'PENDING' # Nếu tạch thì trả về PENDING cho người khác làm
-        c.execute("UPDATE learning_tasks SET status=?, last_updated=CURRENT_TIMESTAMP WHERE id=?", (new_status, res.task_id))
+        # 6. CẬP NHẬT TRẠNG THÁI TASK & LƯU TRI THỨC
+        task_new_status = 'DONE' if is_passed else 'PENDING'
+        c.execute("UPDATE learning_tasks SET status=?, last_updated=CURRENT_TIMESTAMP WHERE id=?", (task_new_status, res.task_id))
 
-        # 6. GHI NHỚ TRI THỨC (CHỈ KHI ĐẠT CHUẨN)
-        if is_passed and AI_AVAILABLE:
-            knowledge_pack = f"Topic: {topic}\nContent: {res.result_content}"
-            await run_in_threadpool(lambda: learn_knowledge(knowledge_pack))
-
-        # 7. LƯU NHẬT KÝ CHI TIẾT (WORK LOGS)
-        timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
+        # 7. GHI NHẬT KÝ CHI TIẾT (WORK_LOGS)
         c.execute("""
-            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost, result_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            timestamp, 
-            f"WORKER_{res.worker_id}", 
-            f"[{verdict}] ({audit_score}đ) {topic}", 
-            f"AUDIT: {audit_comment}\n\nDATA: {res.result_content[:1000]}", 
-            "AUTO_AUDIT_V8", 
-            final_pay
+            datetime.now().strftime("%H:%M %d/%m/%Y"),
+            f"NODE_{res.worker_id}",
+            f"[{verdict}] {topic}",
+            f"Score: {audit_score} | Reason: {audit_comment}\n\nResult: {res.result_content[:500]}",
+            "AI_AUDIT_V9",
+            final_pay,
+            incoming_hash
         ))
-        
+
         conn.commit()
         
+        # Trả kết quả về cho Worker GUI hiển thị
         return {
-            "status": "success", 
+            "status": "success",
             "verdict": verdict,
             "score": audit_score,
             "reward_earned": final_pay,
-            "message": audit_comment
+            "msg": audit_comment
         }
 
     except Exception as e:
-        print(colored(f"❌ Lỗi nộp bài: {e}", "red"))
-        return {"status": "error", "message": str(e)}
+        print(colored(f"❌ LỖI HỆ THỐNG SUBMIT: {e}", "red"))
+        return {"status": "error", "msg": f"Lỗi Server: {str(e)}"}
     finally:
         conn.close()
 
 @app.post("/api/admin/create_job")
-async def create_job(topic: str, type: str, price: float, x_api_key: str = Header(None)):
+async def create_job(topic: str, type: str, price: float, min_cpu: int = 0, needs_gpu: bool = False, x_api_key: str = Header(None)):
     """
-    Admin tạo việc thủ công và set giá tiền.
-    Ví dụ: 
-    - Type: "RESEARCH" (Học) -> Price: $0.01
-    - Type: "CODING" (Làm)   -> Price: $0.50
+    ADMIN V9.0: Tạo việc có định hướng phần cứng.
     """
     if x_api_key != ADMIN_SECRET: raise HTTPException(403)
     
+    # Lưu thêm yêu cầu phần cứng vào DB
     with db_manager.get_connection() as conn:
         conn.execute(
-            text("INSERT INTO learning_tasks (topic, task_type, reward, status) VALUES (:t, :type, :r, 'PENDING')"),
-            {"t": topic, "type": type, "r": price}
+            text("""INSERT INTO learning_tasks (topic, task_type, reward, status, min_cpu, needs_gpu) 
+                    VALUES (:t, :type, :r, 'PENDING', :cpu, :gpu)"""),
+            {"t": topic, "type": type, "r": price, "cpu": min_cpu, "gpu": 1 if needs_gpu else 0}
         )
         conn.commit()
     
-    return {"msg": f"Đã tạo việc '{topic}' loại {type} với giá ${price}"}
+    return {"msg": f"🚀 Đã tạo việc '{topic}' - Yêu cầu: CPU > {min_cpu}% | GPU: {needs_gpu}"}
 
 # ==========================================
 # 3. PHẦN 5: AI SUPERVISOR
 # ==========================================
 def split_long_subject(text, max_length=4000):
-    """Chia nhỏ dự án chục trang thành các đoạn nhỏ dưới 4000 ký tự."""
-    # Chia theo dấu câu để không làm mất ngữ cảnh giữa chừng
-    chunks = re.split(r'(?<=[.!?]) +', text)
+    """
+    BẢN NÂNG CẤP v9.5: Chia nhỏ dự án theo ngữ cảnh + Chống tràn bộ nhớ.
+    """
+    if not text: return []
+    
+    # Chuẩn hóa khoảng trắng và xuống dòng để AI dễ đọc hơn
+    text = re.sub(r'\n+', '\n', text)
+    
+    # Chia theo dấu câu và cả dấu xuống dòng
+    chunks = re.split(r'(?<=[.!?\n]) +', text)
+    
     result = []
     current_chunk = ""
+    
     for segment in chunks:
+        # Nếu bản thân một segment đã quá dài (trường hợp không có dấu câu)
+        if len(segment) > max_length:
+            # Nếu đang có dở chunk cũ thì lưu lại đã
+            if current_chunk:
+                result.append(current_chunk.strip())
+                current_chunk = ""
+            
+            # Chia nhỏ segment khổng lồ này một cách cưỡng bức
+            for i in range(0, len(segment), max_length):
+                result.append(segment[i:i + max_length].strip())
+            continue
+
+        # Logic gom nhóm thông thường
         if len(current_chunk) + len(segment) < max_length:
-            current_chunk += " " + segment
+            current_chunk += (" " if current_chunk else "") + segment
         else:
             result.append(current_chunk.strip())
             current_chunk = segment
+            
     if current_chunk:
         result.append(current_chunk.strip())
-    return result
-
+        
+    return [c for c in result if c] # Loại bỏ các đoạn rỗng
+# ---- PHÂN TÁCH NỘI DUNG TRUYỀN CHO MÁY ĐÀO ----
 @app.post("/api/admin/auto_distribute_knowledge")
 async def auto_distribute_knowledge(req: CourseRequest, x_api_key: str = Header(None)):
-    if x_api_key != ADMIN_SECRET: 
-        raise HTTPException(status_code=403)
+    # 1. Bảo mật
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
     
-    if not CHAT_MODEL:
-        return {"status": "error", "msg": "AI Core chưa sẵn sàng"}
+    # 2. Chia nhỏ nội dung (Splitter)
+    chunks = split_long_subject(req.subject, max_length=3500) # Để dư 500 ký tự cho Prompt
+    total_created = 0
+    project_ref = uuid.uuid4().hex[:8].upper() # Mã tham chiếu dự án
 
-    # 1. Xử lý chia nhỏ nội dung nếu quá dài (hàng chục trang)
-    full_subject_chunks = split_long_subject(req.subject)
-    total_count = 0
-    
-    # 2. Quy định ngân sách tối thiểu (Ép giá để tránh $0)
-    # Nếu CEO không gửi reward_per_task, mặc định là 0.05
-    min_reward = getattr(req, 'reward_per_task', 0.05)
-    if min_reward <= 0: min_reward = 0.05
+    print(colored(f"🧠 [SUPERVISOR] Đang rã dự án {project_ref} ({len(chunks)} phân đoạn)", "magenta"))
 
-    print(colored(f"🧠 [SUPERVISOR] Đang xử lý dự án dài ({len(full_subject_chunks)} đoạn)", "magenta"))
-
-    for chunk_idx, chunk_content in enumerate(full_subject_chunks):
-        # Prompt điều khiển AI chuyên sâu
+    for idx, content_chunk in enumerate(chunks):
+        # Giới hạn số task mỗi đoạn để tránh AI bị "loãng"
+        tasks_per_chunk = max(1, req.num_tasks // len(chunks))
+        
         prompt = f"""
-        Bạn là Giám đốc Đào tạo của J.A.R.V.I.S. 
-        PHÂN ĐOẠN DỰ ÁN ({chunk_idx + 1}/{len(full_subject_chunks)}): "{chunk_content[:200]}..."
+        Bạn là Tech Lead của PV AI-CORP. 
+        PHÂN TÍCH ĐOẠN {idx+1}/{len(chunks)} CỦA DỰ ÁN: {project_ref}
+        NỘI DUNG: {content_chunk}
         
-        Hãy bẻ nhỏ đoạn nội dung này thành tối đa {max(1, req.num_tasks // len(full_subject_chunks))} nhiệm vụ.
-        
-        YÊU CẦU NGHIÊM NGẶT:
-        1. Định giá (Reward) PHẢI là số thực (ví dụ: {min_reward}). KHÔNG ĐƯỢC ĐỂ 0.
-        2. Loại task: RESEARCH hoặc PRACTICE_CODE.
-        3. Định dạng JSON list: [{{"topic": "...", "type": "...", "reward": {min_reward}, "content": "..."}}]
-        Chỉ trả về JSON thuần túy.
+        NHIỆM VỤ: Trích xuất {tasks_per_chunk} nhiệm vụ thực thi (RESEARCH hoặc PRACTICE_CODE).
+        ĐỊNH DẠNG TRẢ VỀ: Duy nhất 1 JSON LIST:
+        [
+          {{"topic": "Tên ngắn gọn", "type": "RESEARCH", "reward": {req.reward_per_task}, "content": "Chỉ thị chi tiết"}}
+        ]
         """
 
         try:
             response = await CHAT_MODEL.ainvoke(prompt)
-            raw_json = response.content.replace("```json", "").replace("```", "").strip()
+            # Dọn dẹp JSON rác
+            match = re.search(r'\[.*\]', response.content, re.DOTALL)
+            if not match: continue
             
-            # Xử lý trường hợp AI trả về văn bản thừa
-            json_match = re.search(r'\[.*\]', raw_json, re.DOTALL)
-            if json_match:
-                task_list = json.loads(json_match.group())
-            else:
-                continue
+            task_list = json.loads(match.group())
 
-            # 3. Nạp vào Database
-            with db_manager.engine.connect() as conn:
-                for task in task_list:
-                    # Đảm bảo reward không bao giờ bằng 0 khi nạp vào DB
-                    final_reward = float(task.get('reward', min_reward))
-                    if final_reward <= 0: final_reward = min_reward
+            # 3. Nạp vào Database tập trung
+            with db_manager.get_connection() as conn:
+                for t in task_list:
+                    reward = float(t.get('reward', req.reward_per_task or 0.05))
+                    # Gắn mã dự án vào topic để dễ tìm kiếm
+                    full_topic = f"[{project_ref}] {t['topic']}"
                     
-                    try:
-                        conn.execute(
-                            text("""
-                                INSERT INTO learning_tasks (topic, task_type, reward, content, status) 
-                                VALUES (:t, :type, :r, :c, 'PENDING')
-                            """),
-                            {
-                                "t": f"[{req.subject[:30].upper()}...] {task['topic']}",
-                                "type": task['type'],
-                                "r": final_reward,
-                                "c": task['content']
-                            }
-                        )
-                        total_count += 1
-                    except: continue 
+                    conn.execute(
+                        text("INSERT INTO learning_tasks (topic, task_type, reward, content, status) VALUES (:t, :type, :r, :c, 'PENDING')"),
+                        {"t": full_topic, "type": t['type'], "r": reward, "c": t['content']}
+                    )
                 conn.commit()
+                total_created += len(task_list)
+            
+            # Nghỉ 1 giây để tránh bị AI khóa (Rate Limit)
+            await asyncio.sleep(1)
+
         except Exception as e:
-            print(colored(f"❌ Lỗi đoạn {chunk_idx}: {str(e)}", "red"))
+            print(f"⚠️ Lỗi phân rã đoạn {idx}: {e}")
             continue
 
     return {
-        "status": "success", 
-        "tasks_created": total_count, 
-        "msg": f"Đã phân rã dự án dài thành {total_count} nhiệm vụ. Ngân sách mỗi task: ${min_reward}"
+        "status": "success",
+        "project_id": project_ref,
+        "tasks_created": total_created,
+        "msg": f"Dự án đã được bẻ nhỏ thành {total_created} mắt xích tri thức."
     }
+# --- TỔNG HỢP NỘI DUNG KIỂM TRA VÀ KẾT NỐI ----
+@app.post("/api/admin/merge_project_knowledge")
+async def merge_project_knowledge(project_id: str, x_api_key: str = Header(None)):
+    """
+    KNOWLEDGE FUSION v9.8: Hợp nhất hàng trăm kết quả rời rạc thành một báo cáo tổng lực.
+    """
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    try:
+        # 1. TRUY XUẤT TẤT CẢ KẾT QUẢ ĐÃ ĐƯỢC PHÊ DUYỆT (APPROVED)
+        # Chúng ta lọc theo mã dự án đã gắn vào topic lúc nãy [PROJECT_ID]
+        search_pattern = f"[{project_id}]%"
+        c.execute("""
+            SELECT result_summary FROM work_logs 
+            WHERE task_content LIKE ? AND result_summary NOT LIKE '%REJECTED%'
+        """, (search_pattern,))
+        
+        results = c.fetchall()
+        if not results:
+            return {"status": "error", "msg": "Chưa có dữ liệu hoàn thành cho dự án này."}
+
+        # 2. GOM NHÓM DỮ LIỆU (DATA AGGREGATION)
+        # Chỉ lấy phần DATA thực tế từ log, bỏ qua phần nhận xét Audit
+        full_intel = "\n---\n".join([r[0].split("DATA:")[1] if "DATA:" in r[0] else r[0] for r in results])
+
+        print(colored(f"🧬 [FUSION] Đang hợp nhất {len(results)} mảnh tri thức từ dự án {project_id}...", "magenta"))
+
+        # 3. GỌI BỘ NÃO TỔNG CHỈ HUY (MASTER AI) ĐỂ BIÊN TẬP
+        fusion_prompt = f"""
+        BẠN LÀ CHỦ TỊCH HỘI ĐỒNG CHIẾN LƯỢC CỦA PV AI-CORP.
+        Dưới đây là các mảnh tri thức thô thu thập được từ mạng lưới Node về dự án: {project_id}
+        --- DỮ LIỆU THÔ ---
+        {full_intel[:12000]} 
+        
+        NHIỆM VỤ:
+        1. Tổng hợp thành một BÁO CÁO CHIẾN LƯỢC hoàn chỉnh.
+        2. Loại bỏ các nội dung trùng lặp hoặc mâu thuẫn.
+        3. Cấu trúc báo cáo: Tóm tắt điều hành -> Các phát hiện chính -> Giải pháp đề xuất -> Kết luận.
+        4. Ngôn ngữ: Tiếng Việt chuyên nghiệp, sắc sảo.
+        """
+
+        response = await CHAT_MODEL.ainvoke(fusion_prompt)
+        final_report = response.content
+
+        # 4. LƯU TRỮ VÀO KHO TRI THỨC TỔNG (FINAL ARCHIVE)
+        c.execute("""
+            INSERT INTO project_reports (project_id, report_content, node_count, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (project_id, final_report, len(results)))
+        
+        conn.commit()
+
+        return {
+            "status": "success",
+            "project_id": project_id,
+            "summary": final_report[:500] + "...",
+            "full_report": final_report,
+            "msg": f"Đã hợp nhất thành công {len(results)} mắt xích tri thức."
+        }
+
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+    finally:
+        conn.close()
+# --- THÔNG KÊ CHI PHÍ CHO CÁC NODE ---
+@app.get("/api/admin/project_cost_stats/{project_id}")
+async def get_project_cost(project_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Tính tổng số tiền đã trả cho tất cả các thợ đào của dự án này
+    search_pattern = f"[{project_id}]%"
+    c.execute("SELECT SUM(cost) FROM work_logs WHERE task_content LIKE ?", (search_pattern,))
+    total_cost = c.fetchone()[0] or 0.0
+    
+    # Đếm số thợ đào tham gia
+    c.execute("SELECT COUNT(DISTINCT agent_name) FROM work_logs WHERE task_content LIKE ?", (search_pattern,))
+    worker_count = c.fetchone()[0] or 0
+
+    return {
+        "project_id": project_id,
+        "total_investment": round(total_cost, 4),
+        "total_workers": worker_count,
+        "avg_cost_per_node": round(total_cost / worker_count, 5) if worker_count > 0 else 0
+    }
+
 # --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
 
 @app.post("/api/admin/seed_tasks")
@@ -2278,6 +2535,42 @@ class ProjectHunter:
                 continue
                 
         return count
+    @staticmethod
+    async def generate_proposal(proj_title, proj_summary):
+        """
+        [AUTO-PROPOSAL] Dựa trên Di sản tri thức để viết thư chào hàng đỉnh cao.
+        """
+        # Lấy "hương vị" từ di sản của CEO (HR/Marketing)
+        from main import run_nexus_sync
+        
+        proposal_prompt = f"""
+        [ROLE]: Bạn là Senior Sales Engineer của AI Corporation.
+        [PROJECT]: {proj_title}
+        [DESCRIPTION]: {proj_summary}
+        
+        NHIỆM VỤ: 
+        1. Dựa trên các tiêu chuẩn ĐẠO ĐỨC, PHÁP LÝ và KỸ THUẬT trong 'Di sản tri thức' của công ty.
+        2. Viết một bản Proposal (Thư chào hàng) thuyết phục khách hàng chọn chúng ta.
+        3. Nhấn mạnh vào: Giải pháp AI tự chủ, Bảo mật dữ liệu và Tối ưu ROI.
+        
+        FORMAT: Trả về Markdown đẹp, có lời chào, giải pháp và cam kết.
+        """
+        
+        # Gọi Nexus Core để soạn thảo
+        proposal = await run_in_threadpool(lambda: run_nexus_sync(proposal_prompt, "bidding_session"))
+        return proposal
+
+# [CẬP NHẬT TRONG VÒNG LẶP HƯNT]
+# (Sau khi nạp Task thành công, thêm đoạn này)
+        
+        # 4. TỰ ĐỘNG SOẠN THẢO PROPOSAL
+        print(colored(f"✍️ [PROPOSAL] Đang soạn thảo đơn chào hàng cho: {proj['title'][:30]}...", "magenta"))
+        bid_letter = await ProjectHunter.generate_proposal(proj['title'], proj['summary'])
+        
+        # Lưu vào hệ thống tin nhắn để CEO duyệt tại Tab [2] DEV_SANDBOX
+        st_msg = f"📦 [PROPOSAL_DRAFT] cho dự án {proj['title']}:\n\n{bid_letter}"
+        # (Lưu vào DB hoặc gửi qua WebSocket cho Dashboard)
+
 # --- API ĐIỀU KHIỂN THỢ SĂN ---
 @app.post("/api/admin/start_hunting")
 async def start_hunting_api(req: HunterRequest, x_api_key: str = Header(None)):
@@ -2432,4 +2725,4 @@ if __name__ == "__main__":
     print("="*50)
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
