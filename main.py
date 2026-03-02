@@ -371,11 +371,13 @@ def log_work_to_db(agent_name, task, result, tool="Universal-AI", xp_bonus=50, s
 
         # 4. CHUẨN HÓA TAG VAI TRÒ (Dành cho bảng agent_status)
         role_map = {
-            "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", 
-            "ARTIST": "[ARTIST]", "STORYTELLER": "[STORY]",
-            "ORCHESTRATOR": "[ORCHESTRATOR]", "SUPERVISOR": "[SUPERVISOR]",
-            "HARDWARE": "[HARDWARE]", "IOT_ENGINEER": "[IOT]",
-            "STRATEGY_R_AND_D": "[STRATEGY]", "ACADEMY_MONITOR": "[ACADEMY]"
+            "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", "FINANCE": "[FINANCE]", "MARKETING":"[MARKETING]", "SALES":"[SALES]",
+            "ARTIST": "[ARTIST]", "STORYTELLER": "[STORY]", "HR_MANAGER": "[HR_MANAGER]", "SIMULATION": "[SIMULATION]", "CONTENT": "[CONTENT]",
+            "ORCHESTRATOR": "[ORCHESTRATOR]", "SUPERVISOR": "[SUPERVISOR]", "SECURITY": "[SECURITY]", "ARCHITECT_SOFT": "[ARCHITECT_SOFT]",
+            "HARDWARE": "[HARDWARE]", "IOT_ENGINEER": "[IOT]", "LEGAL": "[LEGAL]", "ARCHITECT_BUILD": "[ARCHITECT_BUILD]",
+            "STRATEGY_R_AND_D": "[STRATEGY]", "ACADEMY_MONITOR": "[ACADEMY]", "DATA_ANALYST": "[DATA_ANALYST]", "BIO_GRANDMASTER": "[BIO_GRANDMASTER]",
+            "ANNA": "[ANNA]", "MATH_GRANDMASTER": "[MATH_GRANDMASTER]","PHYSICS_TITAN": "[PHYSICS_TITAN]", "CHEM_ALCHEMIST":"[CHEM_ALCHEMIST]",
+            "PROCUREMENT": "[PROCUREMENT]", "TESTER": "[TESTER]", "INTERN": "[INTERN]",
         }
         
         # Nếu agent_name là [ORCHESTRATOR] thì giữ nguyên, nếu là chuỗi thô thì map lại
