@@ -330,78 +330,75 @@ def learn_knowledge(text: str, source: str = "Manual_Input"):
         logger.error(f"❌ Lỗi tiêu hóa tri thức: {e}")
         return f"❌ Lỗi hệ thống: {str(e)}"
     
-# 🚩[SECTION 4.1] HÀM GHI NHẬT KÝ VÀ TÍNH PHÍ (OPTIMIZED)
-def log_work_to_db(agent_name, task, result, tool="Universal-AI", xp_bonus=50, start_time=None):
+def log_work_to_db(agent_name=None, task=None, result=None, tool="Universal-AI", xp_bonus=50, start_time=None, **kwargs):
     """
-    GHI CHÉP SỔ CÁI V6.1: Đã chuẩn hóa đối số 'agent_name' và cơ chế WAL.
+    GHI CHÉP SỔ CÁI V7.2: CHUYÊN DỤNG CHO CLOUD RENDER
+    - Kháng lỗi 'task_content'
+    - Tự động khởi tạo Schema nếu Disk bị trống
+    - Cơ chế WAL chống khóa DB
     """
+    # Xử lý đối số linh hoạt để dập tắt lỗi ACADEMY CRASH
+    actual_agent = agent_name or kwargs.get('agent', 'Unknown-Agent')
+    actual_task = task or kwargs.get('task_content', 'Nhiệm vụ không tên')
+    
     db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
     
     try:
-        # 1. TÍNH TOÁN HIỆU SUẤT & CHI PHÍ
-        duration = time.time() - start_time if start_time else 0
-        content_length = len(str(result))
-        base_rate = 0.00001
-        
-        # Hệ thống tính phí linh hoạt theo Model
-        cost = content_length * base_rate
-        tool_lower = tool.lower()
-        if "deepseek" in tool_lower: cost /= 10
-        elif "gemini" in tool_lower: cost /= 20
-
-        # 2. KẾT NỐI AN TOÀN (Cơ chế Retry)
         conn = sqlite3.connect(db_path, timeout=30)
         c = conn.cursor()
-        # Kích hoạt WAL mode để đọc/ghi song song không bị crash
         c.execute("PRAGMA journal_mode=WAL;") 
-        
-        # 3. GHI NHẬT KÝ CHI TIẾT
+
+        # --- BƯỚC 0: ĐẢM BẢO BẢNG TỒN TẠI (TRÁNH LỖI KHI MỚI DEPLOY) ---
+        c.execute("""CREATE TABLE IF NOT EXISTS agent_status 
+                     (role_tag TEXT PRIMARY KEY, xp INTEGER, current_topic TEXT, last_updated TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS work_logs 
+                     (timestamp TEXT, agent_name TEXT, task_content TEXT, result_summary TEXT, tool_used TEXT, cost REAL, duration REAL)""")
+
+        # 1. TÍNH TOÁN CHI PHÍ
+        duration = time.time() - start_time if start_time else 0
+        content_length = len(str(result))
+        cost = content_length * 0.00001
+        if "gemini" in tool.lower(): cost /= 20
+
+        # 2. GHI NHẬT KÝ (WORK LOGS)
         c.execute("""
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost, duration)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now().strftime("%H:%M %d/%m"),
-            agent_name.upper(),
-            str(task)[:500],
+            str(actual_agent).upper(),
+            str(actual_task)[:500],
             str(result)[:1000] + ("..." if content_length > 1000 else ""),
-            tool,
-            cost,
-            duration
+            tool, cost, duration
         ))
 
-        # 4. CHUẨN HÓA TAG VAI TRÒ (Dành cho bảng agent_status)
+        # 3. CHUẨN HÓA VAI TRÒ (MAP)
         role_map = {
-            "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", "FINANCE": "[FINANCE]", "MARKETING":"[MARKETING]", "SALES":"[SALES]",
-            "ARTIST": "[ARTIST]", "STORYTELLER": "[STORY]", "HR_MANAGER": "[HR_MANAGER]", "SIMULATION": "[SIMULATION]", "CONTENT": "[CONTENT]",
-            "ORCHESTRATOR": "[ORCHESTRATOR]", "SUPERVISOR": "[SUPERVISOR]", "SECURITY": "[SECURITY]", "ARCHITECT_SOFT": "[ARCHITECT_SOFT]",
-            "HARDWARE": "[HARDWARE]", "IOT_ENGINEER": "[IOT]", "LEGAL": "[LEGAL]", "ARCHITECT_BUILD": "[ARCHITECT_BUILD]",
-            "STRATEGY_R_AND_D": "[STRATEGY]", "ACADEMY_MONITOR": "[ACADEMY]", "DATA_ANALYST": "[DATA_ANALYST]", "BIO_GRANDMASTER": "[BIO_GRANDMASTER]",
-            "ANNA": "[ANNA]", "MATH_GRANDMASTER": "[MATH_GRANDMASTER]","PHYSICS_TITAN": "[PHYSICS_TITAN]", "CHEM_ALCHEMIST":"[CHEM_ALCHEMIST]",
-            "PROCUREMENT": "[PROCUREMENT]", "TESTER": "[TESTER]", "INTERN": "[INTERN]",
+            "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", "FINANCE": "[FINANCE]",
+            "ORCHESTRATOR": "[ORCHESTRATOR]", "DATA_ANALYST": "[DATA_ANALYST]",
+            "ARTIST": "[ARTIST]", "SECURITY": "[SECURITY]", "IOT": "[IOT]"
         }
-        
-        # Nếu agent_name là [ORCHESTRATOR] thì giữ nguyên, nếu là chuỗi thô thì map lại
-        clean_name = agent_name.upper().replace("[", "").replace("]", "")
+        clean_name = str(actual_agent).upper().replace("[", "").replace("]", "")
         target_role = role_map.get(clean_name, f"[{clean_name}]")
-        
-        # 5. CẬP NHẬT XP (UPSERT)
+
+        # 4. CẬP NHẬT XP (SỬ DỤNG UPSERT)
+        # Fix lỗi NoneType bằng cách dùng COALESCE trong SQL
         c.execute("""
             INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(role_tag) DO UPDATE SET
-                xp = xp + excluded.xp,
+                xp = COALESCE(xp, 0) + excluded.xp,
                 current_topic = excluded.current_topic,
                 last_updated = excluded.last_updated
-        """, (target_role, xp_bonus, f"Vừa hoàn thành: {str(task)[:40]}...", datetime.now().isoformat()))
+        """, (target_role, xp_bonus, f"Vừa học: {str(actual_task)[:40]}...", datetime.now().isoformat()))
 
         conn.commit()
         conn.close()
-        
-        print(colored(f"💰 [FINANCE] {target_role} -> +{xp_bonus} XP | Cost: ${cost:.6f}", "green"))
+        print(f"💰 [SYSTEM] {target_role} đã nạp tri thức thành công vào Sổ Cái.")
 
     except Exception as e:
-        print(colored(f"⚠️ [LOG ERROR] Không thể ghi Sổ Cái: {e}", "yellow"))
-
+        print(f"⚠️ [CRITICAL ERROR] Ghi DB thất bại: {e}")
+        
 def ingest_docs_to_memory(folder_path="./data_sources"):
     """
     Quy trình ETL chuyên nghiệp: Trích xuất, Biến đổi và Nạp tri thức vào Vector DB.
