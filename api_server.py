@@ -186,15 +186,13 @@ class DatabaseManager:
 
         self.db_url = os.environ["DATABASE_URL"]
 
-        # 2. Cấu hình Engine
-        self.engine = create_engine(
-            self.db_url, 
-            connect_args={
-                "check_same_thread": False,
-                "timeout": 30 # Đợi 30s nếu DB đang bị khóa
-            },
-            pool_recycle=600 
-        )
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception:
+            print("🚨 Phát hiện Database rác! Đang khởi tạo lại từ đầu...")
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
 
         # Thêm lệnh này vào ngay sau khi tạo kết nối trong init_db
         with self.get_connection() as conn:
