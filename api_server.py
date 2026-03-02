@@ -20,6 +20,7 @@ import hashlib
 import requests
 import feedparser
 import traceback
+import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine, text
 from typing import Optional, List, Dict, Any
@@ -2664,7 +2665,41 @@ def get_latest_audit_report():
     except Exception as e:
         logger.error(f"🚨 [REPORT ERROR]: {str(e)}")
         return f"⚠️ Thưa CEO, không thể truy xuất hồ sơ: {str(e)}."
+@app.get("/api/admin/pull_legacy_data")
+async def pull_legacy_data(x_api_key: str = Header(None)):
+    """
+    [LEGACY MERGER]: Tự động kéo toàn bộ tri thức Tầng 9 từ URL Backup 
+    về ổ cứng vĩnh viễn của Render.
+    """
+    if x_api_key != ADMIN_SECRET: 
+        return {"status": "Auth Fail", "msg": "CEO mới có quyền hợp nhất tri thức!"}
 
+    backup_url = "https://jarvis-ai-qklx.onrender.com/api/backup/download_all"
+    target_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
+    
+    try:
+        print(f"📡 [SYSTEM] Đang kết nối tới kho lưu trữ: {backup_url}...")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(backup_url, timeout=300.0) # Timeout lớn cho file nặng
+            
+            if response.status_code == 200:
+                # Ghi đè file cũ bằng file di sản Tầng 9
+                with open(target_path, "wb") as f:
+                    f.write(response.content)
+                
+                print(f"✅ [SUCCESS] Đã nạp thành công Di sản vào {target_path}")
+                return {
+                    "status": "COMPLETED",
+                    "msg": "Tri thức Tầng 9 đã được hợp nhất thành công vào Server Online!",
+                    "file_size": f"{len(response.content) / 1024 / 1024:.2f} MB"
+                }
+            else:
+                return {"status": "FAILED", "msg": f"Không thể lấy dữ liệu. Mã lỗi: {response.status_code}"}
+                
+    except Exception as e:
+        return {"status": "ERROR", "msg": str(e)}
+    
 @app.get("/api/backup/download_all")
 async def download_full_brain(background_tasks: BackgroundTasks): # <--- Thêm tham số này
     """
