@@ -82,16 +82,42 @@
                     </div>
                     <p class="text-[7px] text-slate-500 italic mt-1">AI tự động săn tin và phân bổ task 24/7</p>
                 </div>
-                <div class="glass-panel p-4 border-t-2 border-blue-500">
-                    <h3 class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <i class="fas fa-brain"></i> Supervisor
+                <div class="glass-panel p-4 border-t-2 border-cyan-500 bg-cyan-950/5">
+                    <h3 class="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mb-3 flex justify-between items-center">
+                        <span><i class="fas fa-network-wired"></i> Node Dispatcher</span>
+                        <span class="text-[8px] bg-cyan-900 px-2 py-0.5 rounded text-white">v8.0 PRO</span>
                     </h3>
-                    <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-blue-500" placeholder="Chủ đề bài học...">
-                    <div class="flex gap-2">
-                        <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1"><option value="5">05 Tasks</option><option value="15" selected>15 Tasks</option></select>
-                        <button onclick="distributeKnowledge()" id="btnDistribute" class="bg-blue-600 hover:bg-blue-500 text-[9px] font-bold px-3 py-1 rounded transition-all">PHÂN BỔ</button>
+                    
+                    <div class="flex gap-1 mb-2">
+                        <button onclick="setTaskType('RESEARCH')" id="btnTypeResearch" class="flex-1 text-[8px] py-1 border border-cyan-500/50 bg-cyan-500/20 rounded font-bold transition-all">NGHIÊN CỨU</button>
+                        <button onclick="setTaskType('PRACTICE_CODE')" id="btnTypeProject" class="flex-1 text-[8px] py-1 border border-slate-700 rounded font-bold opacity-50 hover:opacity-100 transition-all">DỰ ÁN CODE</button>
                     </div>
-                    <div id="statusBox" class="text-[8px] text-slate-500 mt-2 italic">Radar: Ready</div>
+
+                    <input type="text" id="subjectInput" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white mb-2 outline-none focus:border-cyan-500" placeholder="Chủ đề hoặc nội dung dự án...">
+                    
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div class="bg-slate-950/50 p-2 rounded border border-slate-800">
+                            <p class="text-[7px] text-slate-500 uppercase">Phí tối thiểu</p>
+                            <p id="minRewardDisplay" class="text-[10px] font-bold text-green-500">$0.05</p>
+                        </div>
+                        <div class="bg-slate-950/50 p-2 rounded border border-cyan-500/30">
+                            <p class="text-[7px] text-cyan-500 uppercase">Ngân sách nạp ($)</p>
+                            <input type="number" id="rewardInput" step="0.01" value="0.05" class="bg-transparent text-[10px] font-bold text-white w-full outline-none" oninput="checkIncentive()">
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <select id="taskNumInput" class="bg-slate-800 border border-slate-700 rounded text-[9px] p-1 text-white flex-1">
+                            <option value="5">05 Tasks</option>
+                            <option value="15" selected>15 Tasks</option>
+                            <option value="50">50 Tasks (Massive)</option>
+                        </select>
+                        <button onclick="distributeKnowledge()" id="btnDistribute" class="bg-cyan-600 hover:bg-cyan-500 text-[9px] font-bold px-4 py-1 rounded transition-all shadow-[0_0_15px_rgba(8,145,178,0.3)]">PHÂN BỔ NODE</button>
+                    </div>
+                    
+                    <button onclick="mergeKnowledge()" class="w-full mt-2 border border-purple-500/50 text-purple-400 text-[8px] py-1 rounded hover:bg-purple-500/10 transition-all uppercase font-bold">
+                        <i class="fas fa-layer-group"></i> Hợp nhất tri thức dự án
+                    </button>
                 </div>
 
                 <div class="glass-panel p-4 border-t-2 border-red-500 bg-red-950/10 shadow-lg shadow-red-950/20">
@@ -171,6 +197,33 @@
         }
         setInterval(updateLocation, 1000);
 
+        let currentTaskType = 'RESEARCH';
+
+        function setTaskType(type) {
+            currentTaskType = type;
+            const isResearch = type === 'RESEARCH';
+            document.getElementById('btnTypeResearch').className = isResearch ? "flex-1 text-[8px] py-1 border border-cyan-500 bg-cyan-500/20 rounded font-bold" : "flex-1 text-[8px] py-1 border border-slate-700 rounded font-bold opacity-50";
+            document.getElementById('btnTypeProject').className = !isResearch ? "flex-1 text-[8px] py-1 border border-orange-500 bg-orange-500/20 rounded font-bold" : "flex-1 text-[8px] py-1 border border-slate-700 rounded font-bold opacity-50";
+            
+            // Tự động gợi ý mức phí tối thiểu cho từng loại
+            const minReward = isResearch ? 0.05 : 0.50; 
+            document.getElementById('minRewardDisplay').innerText = `$${minReward}`;
+            document.getElementById('rewardInput').value = minReward;
+        }
+
+        function checkIncentive() {
+            const input = document.getElementById('rewardInput');
+            const min = currentTaskType === 'RESEARCH' ? 0.05 : 0.50;
+            if (parseFloat(input.value) > min) {
+                input.classList.add('text-green-400'); // Hiển thị màu xanh nếu CEO đang kích cầu
+                document.getElementById('statusBox').innerText = "🔥 ĐANG KÍCH CẦU ƯU TIÊN";
+            } else {
+                input.classList.remove('text-green-400');
+                document.getElementById('statusBox').innerText = "Radar: Ready";
+            }
+        }
+
+
         // 2. GROWTH CHART
         const growthChart = new Chart(document.getElementById('growthChart').getContext('2d'), {
             type: 'line',
@@ -220,30 +273,46 @@
         async function distributeKnowledge() {
             const subject = document.getElementById('subjectInput').value;
             const num = document.getElementById('taskNumInput').value;
+            const reward = document.getElementById('rewardInput').value;
             const btn = document.getElementById('btnDistribute');
-            if(!subject) return;
+            
+            if(!subject) {
+                addChat("AI", "⚠️ Thưa chỉ huy, vui lòng nhập nội dung dự án trước khi phân bổ.");
+                return;
+            }
 
-            btn.innerText = "BÓC TÁCH...";
+            btn.innerText = "DYNAMIZING...";
             btn.disabled = true;
+            btn.classList.add('animate-pulse', 'bg-orange-600');
 
-            try {
-                const res = await fetch('/api/admin/auto_distribute_knowledge', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-api-key': ADMIN_KEY },
-                    body: JSON.stringify({ 
-                        subject: subject, 
-                        num_tasks: parseInt(num),
-                        reward_per_task: 0.05 // <--- FIX: GỬI NGÂN SÁCH ĐỊNH GIÁ $0.05
-                    })
-                });
-                const d = await res.json();
-                if(d.status==='success') {
-                    addChat("AI", `Giám sát viên đã phân phối chủ đề **${subject}** thành ${d.tasks_created} mẩu tri thức với ngân sách dự chi $${(d.tasks_created * 0.05).toFixed(2)}.`);
+            if(d.status === 'success') {
+                    const totalBudget = (d.tasks_created * parseFloat(reward)).toFixed(2);
+                    const typeText = currentTaskType === 'RESEARCH' ? "NGHIÊN CỨU" : "DỰ ÁN MÃ NGUỒN";
+                    // CẮT CHUỖI CHUẨN JAVASCRIPT: dùng .substring(0, 50)
+                    const shortSubject = subject.length > 50 ? subject.substring(0, 50) + "..." : subject;
+                    // Thông báo kết quả lên Dashboard
+                    addChat("AI", `
+                        🚀 **PHÂN BỔ THÀNH CÔNG**
+                        - Loại hình: ${typeText}
+                        - Dự án: **${subject[:50]}...**
+                        - Quy mô: ${d.tasks_created} mắt xích.
+                        - Ngân sách giải ngân: **$${totalBudget}** (Mức phí: $${reward}/task).
+                    `);
+
+                    // Reset Form
                     document.getElementById('subjectInput').value = '';
-                    fetchData();
+                    fetchData(); // Cập nhật lại danh sách Node và Log
+                } else {
+                    addChat("AI", `❌ Lỗi phân phối: ${d.msg}`);
                 }
-            } catch (e) { console.error(e); }
-            finally { btn.innerText = "PHÂN BỔ"; btn.disabled = false; }
+            } catch (e) { 
+                console.error("DISTRIBUTION_ERROR:", e);
+                addChat("AI", "🚨 Tín hiệu đến Server bị ngắt quãng. Vui lòng kiểm tra lại đường truyền.");
+            } finally { 
+                btn.innerText = "PHÂN BỔ"; 
+                btn.disabled = false; 
+                btn.classList.remove('animate-pulse', 'bg-orange-600');
+            }
         }
 
         async function activateHunter() {
@@ -383,6 +452,8 @@
                 playVoice(e.data); 
             }
         };
+
+
 
         document.getElementById('send-btn').onclick = () => {
             const i = document.getElementById('user-input');
