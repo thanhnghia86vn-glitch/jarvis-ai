@@ -1,7 +1,7 @@
 # ============================================================================
 # 🚩 [SECTION 1] SYSTEM INITIALIZATION & CLOUD FIX
 # ============================================================================
-import sys, os, json, ast, asyncio, operator, re, time, shutil, sqlite3, logger
+import sys, os, json, ast, asyncio, operator, re, time, shutil, sqlite3, logger, inspect 
 from datetime import datetime
 from termcolor import colored
 from dotenv import load_dotenv
@@ -48,33 +48,52 @@ class AgentState(TypedDict):
 # 🚩 [PHẦN 2] ENGINE CONNECTORS
 # ==========================================
 def run_nexus_sync(cmd, thread_id):
+    """
+    NEXUS SYNC V9.0: GIAO THỨC CẦU NỐI ĐA LUỒNG
+    - Triệt tiêu lỗi: RuntimeError: asyncio.run() cannot be called from a running event loop
+    - Chống lỗi: Coroutine Object Return
+    - Tối ưu: Memory Management
+    """
     try:
         from main import app as nexus_app
         
-        
+        # 1. LẤY HOẶC TẠO EVENT LOOP (CƠ CHẾ BỌC THÉP)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # 2. HÀM THỰC THI CHÍNH
         async def call_app():
-            # Sử dụng ainvoke là chính xác cho LangGraph async
+            # Ainvoke là chuẩn xác cho LangGraph Async
+            config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
             response = await nexus_app.ainvoke(
                 {"messages": [HumanMessage(content=cmd)]}, 
-                {"configurable": {"thread_id": thread_id}, "recursion_limit": 50} # Tăng giới hạn để tránh lỗi Recursion
+                config
             )
             return response
 
-        # Chạy loop đồng bộ
-        result = asyncio.run(call_app())
-        
-        # --- ĐIỂM SỬA QUAN TRỌNG ---
-        raw_content = result['messages'][-1].content
-        
-        # Nếu raw_content là một coroutine (do lỗi định nghĩa agent), ta phải await nó thêm lần nữa
-        # Nhưng trong Streamlit (sync), ta sẽ dùng kiểm tra kiểu dữ liệu:
-        if asyncio.iscoroutine(raw_content):
-            # Nếu lỡ nhận về một coroutine, ta chạy nó để lấy chuỗi thực
-            raw_content = asyncio.run(raw_content)
+        # 3. CHẠY TRONG LOOP HIỆN TẠI (TRÁNH asyncio.run)
+        result = loop.run_until_complete(call_app())
+
+        # 4. TRÍCH XUẤT NỘI DUNG VÀ XỬ LÝ LỖI COROUTINE
+        if 'messages' in result and len(result['messages']) > 0:
+            last_msg = result['messages'][-1]
+            raw_content = last_msg.content
             
-        return str(raw_content) # Ép kiểu về String để an toàn tuyệt đối
+            # Giờ đây inspect đã trực tuyến, dòng này sẽ chạy mượt mà
+            if asyncio.iscoroutine(raw_content) or inspect.iscoroutine(raw_content):
+                print(colored("🔄 [DEBUG] Phát hiện Coroutine chưa thực thi, đang cưỡng bức await...", "yellow"))
+                raw_content = loop.run_until_complete(raw_content)
+                
+            return str(raw_content)
         
-    except Exception as e: 
+        return "⚠️ [NEXUS]: Agent không trả về dữ liệu."
+
+    except Exception as e:
+        # Ghi log lỗi vào Sổ Cái để CEO tiện theo dõi
+        print(f"🚨 [NEXUS FATAL]: {str(e)}")
         return f"⚠️ [NEXUS_ERROR]: {str(e)}"
 # ============================================================================
 # 🚩 [SECTION 3] BRAIN ENGINES & FALLBACK STRATEGY
@@ -207,7 +226,7 @@ ACADEMY_IDX = 0
 # 🚩 [SECTION 4] MIDDLEWARE & UTILITY TOOLS
 # ============================================================================
 DB_PATH = "./db_knowledge"
-
+vector_db = None
 # 1. ĐẢM BẢO THƯ MỤC TỒN TẠI
 if not os.path.exists(DB_PATH):
     os.makedirs(DB_PATH)
@@ -215,22 +234,19 @@ if not os.path.exists(DB_PATH):
 
 # 2. KHỞI TẠO BỘ NHỚ VỚI CƠ CHẾ CHỐNG XUNG ĐỘT
 try:
-    # Sử dụng OpenAIEmbeddings để vector hóa văn bản
-    # Lưu ý: Cần đảm bảo OPENAI_API_KEY đã nạp ở Section 1
     embeddings = OpenAIEmbeddings()
-    
-    # Khởi tạo ChromaDB với cấu hình nâng cao
     vector_db = Chroma(
         persist_directory=DB_PATH, 
         embedding_function=embeddings,
-        # Thêm collection_metadata để tối ưu hóa tìm kiếm HNSW
         collection_metadata={"hnsw:space": "cosine"} 
     )
     print(colored("🧠 [MEMORY] Bộ não tri thức (ChromaDB) đã trực tuyến.", "green", attrs=["bold"]))
-    
 except Exception as e:
-    vector_db = None
+    # vector_db đã là None từ trên, nhưng gán lại ở đây cho chắc chắn
+    vector_db = None 
     print(colored(f"❌ [MEMORY ERROR] Không thể kết nối bộ não: {e}", "red"))
+    
+
 
 def init_database_global():
     """Khởi tạo cấu trúc bảng với cơ chế Integrity Check."""
@@ -332,72 +348,78 @@ def learn_knowledge(text: str, source: str = "Manual_Input"):
     
 def log_work_to_db(agent_name=None, task=None, result=None, tool="Universal-AI", xp_bonus=50, start_time=None, **kwargs):
     """
-    GHI CHÉP SỔ CÁI V7.2: CHUYÊN DỤNG CHO CLOUD RENDER
-    - Kháng lỗi 'task_content'
-    - Tự động khởi tạo Schema nếu Disk bị trống
-    - Cơ chế WAL chống khóa DB
+    GHI CHÉP SỔ CÁI V8.0: CHUẨN ISO & CHỐNG MALFORMED
+    - Kháng lỗi Malformed bằng cơ chế Context Manager
+    - Đồng bộ trục thời gian thực (ISO 8601) cho Dashboard
+    - Tự động sửa lỗi NoneType XP
     """
-    # Xử lý đối số linh hoạt để dập tắt lỗi ACADEMY CRASH
+    # 1. XỬ LÝ ĐỐI SỐ LINH HOẠT
     actual_agent = agent_name or kwargs.get('agent', 'Unknown-Agent')
     actual_task = task or kwargs.get('task_content', 'Nhiệm vụ không tên')
     
+    # 2. ĐỊNH VỊ DATABASE
     db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
     
+    # ÉP TRỤC THỜI GIAN CHUẨN (YYYY-MM-DD HH:MM:SS) - QUAN TRỌNG ĐỂ DASHBOARD SẮP XẾP
+    iso_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     try:
-        conn = sqlite3.connect(db_path, timeout=30)
-        c = conn.cursor()
-        c.execute("PRAGMA journal_mode=WAL;") 
+        # Sử dụng 'with' để đảm bảo DB luôn được đóng an toàn kể cả khi crash
+        with sqlite3.connect(db_path, timeout=30) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;") # Ghi đệm để tăng tốc
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            c = conn.cursor()
 
-        # --- BƯỚC 0: ĐẢM BẢO BẢNG TỒN TẠI (TRÁNH LỖI KHI MỚI DEPLOY) ---
-        c.execute("""CREATE TABLE IF NOT EXISTS agent_status 
-                     (role_tag TEXT PRIMARY KEY, xp INTEGER, current_topic TEXT, last_updated TEXT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS work_logs 
-                     (timestamp TEXT, agent_name TEXT, task_content TEXT, result_summary TEXT, tool_used TEXT, cost REAL, duration REAL)""")
+            # --- BƯỚC 0: ĐẢM BẢO BẢNG TỒN TẠI ---
+            c.execute("""CREATE TABLE IF NOT EXISTS agent_status 
+                         (role_tag TEXT PRIMARY KEY, xp INTEGER, current_topic TEXT, last_updated TEXT)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS work_logs 
+                         (timestamp TEXT, agent_name TEXT, task_content TEXT, result_summary TEXT, tool_used TEXT, cost REAL, duration REAL)""")
 
-        # 1. TÍNH TOÁN CHI PHÍ
-        duration = time.time() - start_time if start_time else 0
-        content_length = len(str(result))
-        cost = content_length * 0.00001
-        if "gemini" in tool.lower(): cost /= 20
+            # 1. TÍNH TOÁN HIỆU SUẤT
+            duration = time.time() - start_time if start_time else 0
+            content_length = len(str(result)) if result else 0
+            cost = content_length * 0.00001
+            if "gemini" in str(tool).lower(): cost /= 20
 
-        # 2. GHI NHẬT KÝ (WORK LOGS)
-        c.execute("""
-            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost, duration)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            datetime.now().strftime("%H:%M %d/%m"),
-            str(actual_agent).upper(),
-            str(actual_task)[:500],
-            str(result)[:1000] + ("..." if content_length > 1000 else ""),
-            tool, cost, duration
-        ))
+            # 2. GHI NHẬT KÝ (WORK LOGS)
+            c.execute("""
+                INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used, cost, duration)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                iso_timestamp, # Trục thời gian chuẩn
+                str(actual_agent).upper(),
+                str(actual_task)[:500],
+                str(result)[:1000] + ("..." if content_length > 1000 else ""),
+                tool, cost, duration
+            ))
 
-        # 3. CHUẨN HÓA VAI TRÒ (MAP)
-        role_map = {
-            "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", "FINANCE": "[FINANCE]",
-            "ORCHESTRATOR": "[ORCHESTRATOR]", "DATA_ANALYST": "[DATA_ANALYST]",
-            "ARTIST": "[ARTIST]", "SECURITY": "[SECURITY]", "IOT": "[IOT]"
-        }
-        clean_name = str(actual_agent).upper().replace("[", "").replace("]", "")
-        target_role = role_map.get(clean_name, f"[{clean_name}]")
+            # 3. CHUẨN HÓA VAI TRÒ
+            role_map = {
+                "RESEARCHER": "[RESEARCH]", "CODER": "[CODER]", "FINANCE": "[FINANCE]",
+                "ORCHESTRATOR": "[ORCHESTRATOR]", "DATA_ANALYST": "[DATA_ANALYST]",
+                "ARTIST": "[ARTIST]", "SECURITY": "[SECURITY]", "IOT": "[IOT]",
+                "HR_MANAGER": "[HR_MANAGER]", "STRATEGY": "[STRATEGY]"
+            }
+            clean_name = str(actual_agent).upper().replace("[", "").replace("]", "")
+            target_role = role_map.get(clean_name, f"[{clean_name}]")
 
-        # 4. CẬP NHẬT XP (SỬ DỤNG UPSERT)
-        # Fix lỗi NoneType bằng cách dùng COALESCE trong SQL
-        c.execute("""
-            INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(role_tag) DO UPDATE SET
-                xp = COALESCE(xp, 0) + excluded.xp,
-                current_topic = excluded.current_topic,
-                last_updated = excluded.last_updated
-        """, (target_role, xp_bonus, f"Vừa học: {str(actual_task)[:40]}...", datetime.now().isoformat()))
-
-        conn.commit()
-        conn.close()
-        print(f"💰 [SYSTEM] {target_role} đã nạp tri thức thành công vào Sổ Cái.")
+            # 4. CẬP NHẬT XP (UPSERT)
+            c.execute("""
+                INSERT INTO agent_status (role_tag, xp, current_topic, last_updated)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(role_tag) DO UPDATE SET
+                    xp = COALESCE(xp, 0) + excluded.xp,
+                    current_topic = excluded.current_topic,
+                    last_updated = excluded.last_updated
+            """, (target_role, xp_bonus, f"🎯 {str(actual_task)[:40]}...", iso_timestamp))
+            
+            # Ghi nhận di sản thành công
+            print(f"💰 [SYSTEM] {iso_timestamp} | {target_role} -> Di sản nạp thành công.")
 
     except Exception as e:
-        print(f"⚠️ [CRITICAL ERROR] Ghi DB thất bại: {e}")
+        # Cứu hộ khẩn cấp khi DB lỗi
+        print(f"⚠️ [CRITICAL ERROR] Sổ cái bị kẹt: {e}")
 
 def ingest_docs_to_memory(folder_path="./data_sources"):
     """
@@ -2789,19 +2811,18 @@ async def main_loop():
             
             print(colored("\n" + "─"*20 + " ⚡ ĐANG XỬ LÝ HỆ THỐNG AGENT " + "─"*20, "dark_grey"))
 
-            # 4. KÍCH HOẠT GRAPH VỚI CƠ CHẾ STREAMING (BẢN SỬA LỖI)
-            async for event in app.astream(initial_state, config=config, stream_mode="values"):
-                # event trong LangGraph thường là một Dictionary chứa tên Node và giá trị trả về
-                for node, values in event.items():
-                    if node != "__end__":
-                        # KIỂM TRA KIỂU DỮ LIỆU ĐỂ TRÁNH LỖI 'LIST'
-                        if isinstance(values, dict):
-                            current = values.get("current_agent", node)
-                        else:
-                            # Nếu values là một List (danh sách tin nhắn), ta lấy tên node làm mặc định
-                            current = node
-                        
-                        print(colored(f" ➔ [NODE]: {current.ljust(15)} | Status: Hoàn tất", "dark_grey"))
+            # SỬA ĐỔI: Chuyển sang stream_mode="updates" để lấy cấu trúc {node_name: updated_values}
+            async for event in app.astream(initial_state, config=config, stream_mode="updates"):
+                for node_name, updated_data in event.items():
+                    # Trích xuất Agent hiện tại từ dữ liệu cập nhật hoặc lấy tên Node
+                    current = node_name
+                    if isinstance(updated_data, dict) and "current_agent" in updated_data:
+                        current = updated_data["current_agent"]
+                    
+                    print(colored(f" ➔ [NODE]: {str(current).ljust(15)} | Status: Hoàn tất", "dark_grey"))
+                    
+                    # Cập nhật thời gian tương tác để tránh Academy chiếm quyền
+                    LAST_INTERACTION_TIME = datetime.now()
 
         except Exception as e:
             print(colored(f"❌ LỖI HỆ THỐNG: {str(e)}", "red", attrs=["bold"]))
@@ -4027,3 +4048,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
