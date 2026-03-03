@@ -1258,71 +1258,50 @@ def extract_code_block(content) -> str:
 
 # 🚩 [SECTION 5.6] RESEARCHER NODE (PHIÊN BẢN CHIẾN LƯỢC)
 async def researcher_node(state: AgentState):
-    """
-    Agent Researcher: Chuyên gia thám mã dữ liệu.
-    Cơ chế: Zero-Cost Search + Smart Routing + KPI Logging.
-    """
     start_time = time.time() 
-    print(colored("[🔍 RESEARCHER] Đang thám mã thị trường (Zero-Cost)...", "cyan", attrs=["bold"]))
-
-    # 1. TRÍCH XUẤT NHIỆM VỤ (INTENT MINING)
-    messages = state.get("messages", [])
+    # Lấy db_timestamp từ state (truyền từ WebSocket xuống) để đồng bộ tuyệt đối
+    # Nếu không có, ta mới tự tạo mới theo chuẩn ISO
+    sync_timestamp = state.get("db_timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     
-    # Ưu tiên lấy yêu cầu gốc của CEO từ lịch sử
-    target_msg_content = ""
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            target_msg_content = msg.content
-            break
-    if not target_msg_content: target_msg_content = messages[-1].content
+    print(colored("[🔍 RESEARCHER] Đang thám mã thị trường...", "cyan", attrs=["bold"]))
 
-    # Nhận diện Tab chuyên biệt hoặc luồng tự động
+    messages = state.get("messages", [])
+    target_msg_content = next((msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)), messages[-1].content)
+    
     is_pure_research = "[RESEARCH]" in target_msg_content
-    # Làm sạch Query để search không bị dính tag hệ thống
     clean_query = re.sub(r"\[.*?\]", "", target_msg_content).strip()
 
     try:
-        # 2. THỰC THI TRUY VẾT DỮ LIỆU
-        # Gọi hàm 'thợ lặn' miễn phí đã tối ưu ở Section 5
         raw_res = await free_deep_research(clean_query) 
 
-        # 3. ĐỊNH TUYẾN THÔNG MINH (DYNAMIC ROUTING)
-        # Sửa lỗi: Đảm bảo next_step luôn khớp với bản đồ workflow
-        if is_pure_research:
-            next_destination = "FINISH"
-        else:
-            # Nếu là Task phức tạp, ưu tiên quay lại Supervisor để kiểm tra chéo
-            next_destination = "Supervisor" 
-            # if state.get("task_type") != "dynamic" else "Orchestrator"
+        # ĐỊNH TUYẾN
+        next_destination = "FINISH" if is_pure_research else "Supervisor" 
 
-        # 4. GHI NHẬT KÝ CHI PHÍ & XP (AUDIT)
+        # 4. GHI NHẬT KÝ (Sử dụng hàm log đồng bộ đã sửa ở bước trước)
+        # Truyền sync_timestamp vào để Sổ Cái sắp xếp chuẩn 100%
         log_work_to_db(
             agent="RESEARCHER",
             task=f"Nghiên cứu: {clean_query[:50]}...",
             result=raw_res, 
             tool="Scout-Flash-V2",
-            start_time=start_time
+            timestamp=sync_timestamp # ÉP DÙNG CHUẨN ISO
         )
 
-        # 5. ĐÓNG GÓI BÁO CÁO
-        # Thêm timestamp và metadata để Dashboard hiển thị chuyên nghiệp hơn
-        report_header = f"🔍 **BÁO CÁO NGHIÊN CỨU THỊ TRƯỜNG**\n"
-        report_header += f"📅 *Ngày thực hiện: {datetime.now().strftime('%d/%m/%Y')}* | 🏷️ *Tag: {clean_query}*\n"
+        # 5. ĐÓNG GÓI BÁO CÁO (Dành cho mắt CEO nhìn trên HUD)
+        display_date = datetime.now().strftime('%H:%M | %d/%m/%Y')
+        report_header = f"🔍 **BÁO CÁO NGHIÊN CỨU CHIẾN LƯỢC**\n"
+        report_header += f"📅 *Thời gian: {display_date}* | 🚀 *Node: Phan Thiết Central*\n"
         report_header += "---"
         
         return {
             "messages": [AIMessage(content=f"{report_header}\n\n{raw_res}")],
             "next_step": next_destination,
-            "current_agent": "Researcher"
+            "current_agent": "RESEARCHER" # Viết hoa đồng bộ với Database
         }
 
     except Exception as e:
         print(colored(f"❌ [RESEARCH ERROR]: {e}", "red"))
-        return {
-            "messages": [AIMessage(content=f"⚠️ Sự cố thám mã: {str(e)}")],
-            "next_step": "FINISH",
-            "current_agent": "Researcher"
-        }
+        return {"messages": [AIMessage(content=f"⚠️ Sự cố: {str(e)}")], "next_step": "FINISH", "current_agent": "RESEARCHER"}
     
 # 🚩 [SECTION 5.7] QUY TRÌNH ỨNG CỨU KHẨN CẤP (ULTIMATE FALLBACK)
 def ultimate_fallback(state: AgentState, messages: list):
