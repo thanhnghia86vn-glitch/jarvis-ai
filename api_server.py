@@ -182,22 +182,33 @@ class DatabaseManager:
         self.db_path = DB_PATH
         self.db_url = f"sqlite:///{self.db_path}"
 
-        # 2. KIỂM TRA TÍNH HỢP LỆ (Giao thức tự chữa lành)
+        # 2. KIỂM TRA TÍNH HỢP LỆ & TỰ PHỤC HỒI (Deep Clean Protocol)
         if os.path.exists(self.db_path):
             try:
-                # Thử mở bằng thư viện gốc để test xem có phải database thật không
                 import sqlite3
-                test_conn = sqlite3.connect(self.db_path)
-                test_conn.execute("SELECT 1")
+                # Thử kết nối với timeout ngắn để tránh treo
+                test_conn = sqlite3.connect(self.db_path, timeout=5)
+                test_conn.execute("PRAGMA integrity_check;") # Kiểm tra sâu cấu trúc vật lý
                 test_conn.close()
                 print(colored(f"✅ [DATABASE] File hợp lệ: {self.db_path}", "green"))
             except Exception as e:
-                # Nếu hỏng: Xóa ngay để Server có thể khởi động với file mới sạch
-                print(colored(f"🚨 [CRITICAL] Database hỏng ({e}). Đang tái cấu trúc...", "red", attrs=["bold"]))
+                print(colored(f"🚨 [CRITICAL] Database hỏng ({e}). Đang thực hiện Hard Reset...", "red", attrs=["bold"]))
+                
+                # Giao thức xóa sạch dấu vết cũ
+                import time
                 try:
-                    os.remove(self.db_path)
-                except:
-                    pass
+                    # 1. Chờ 1 nhịp để các kết nối treo (nếu có) được giải phóng
+                    time.sleep(2) 
+                    
+                    # 2. Xóa file chính và các file cache phụ của SQLite
+                    for suffix in ["", "-wal", "-shm"]:
+                        path_to_kill = self.db_path + suffix
+                        if os.path.exists(path_to_kill):
+                            os.remove(path_to_kill)
+                            print(colored(f"🔥 Đã tiêu hủy: {path_to_kill}", "yellow"))
+                            
+                except Exception as del_e:
+                    print(colored(f"⚠️ Không thể xóa file: {del_e}", "red"))
 
         # 3. Khởi tạo Engine với các tham số tối ưu
         self.engine = create_engine(
@@ -753,71 +764,79 @@ async def api_auto_reply(customer_email: str, x_api_key: str = Header(None)):
 # THÊM VÀO api_server.py TRÊN RENDER
 @app.post("/api/sync/pulse")
 async def sync_pulse(data: dict, x_api_key: str = Header(None)):
-    """
-    Giao thức NHỊP ĐẬP ĐỒNG BỘ: Hợp nhất tri thức từ Local lên Cloud.
-    Sử dụng Connection Pool để chống lỗi 'Database is locked'.
-    """
-    # 1. Bảo mật tối cao
+    # 1. Bảo mật tối cao (Giữ nguyên)
     if x_api_key != ADMIN_SECRET: 
         return JSONResponse(status_code=403, content={"error": "Unauthorized Access"})
     
-    new_logs = data.get("logs", [])
-    agent_states = data.get("agents", [])
+    # --- PHẦN TRƯỚC ĐÓ: KIỂM SOÁT ĐẦU VÀO ---
+    # Đảm bảo logs và agents luôn là List, kể cả khi Local gửi dữ liệu rỗng
+    new_logs = data.get("logs") if isinstance(data.get("logs"), list) else []
+    agent_states = data.get("agents") if isinstance(data.get("agents"), list) else []
     
     if not new_logs and not agent_states:
         return {"status": "NO_DATA", "msg": "Không có dữ liệu mới để đồng bộ."}
 
     try:
-        # 2. Sử dụng db_manager đã có để tận dụng WAL Mode và Connection Pool
+        # 2. Kết nối Database với cơ chế Pool
         with db_manager.get_connection() as conn:
-            # Dùng Transaction để đảm bảo dữ liệu không bị hỏng nếu đứt mạng
             from sqlalchemy import text
             
-            # 3. Vá các lượt học mới (Dùng INSERT OR IGNORE chống trùng lặp di sản)
-            # Lưu ý: Map đúng tên cột trong JSON gửi từ Local lên
-            # 3. Vá các lượt học mới (Dùng INSERT OR IGNORE chống trùng lặp di sản)
+            # --- 3. VÁ CÁC LƯỢT HỌC MỚI (Giao thức bọc thép v9.3) ---
+            added_count = 0
             for log in new_logs:
-                # --- [BỔ SUNG BỘ LỌC] ---
-                res_content = log.get('result_summary') or log.get('result')
-                
-                # NẾU nội dung chỉ là thông báo tạm thời HOẶC quá ngắn, ta bỏ qua không nạp vào Cloud
-                if not res_content or "trích xuất" in res_content or len(str(res_content)) < 50:
-                    continue 
-                # -------------------------
+                try:
+                    # [BẢO VỆ DỮ LIỆU CỐT LÕI]
+                    res_content = log.get('result_summary') or log.get('result')
+                    if not res_content or len(str(res_content)) < 30:
+                        continue 
 
-                conn.execute(text("""
-                    INSERT OR IGNORE INTO work_logs 
-                    (timestamp, agent_name, task_content, tool_used, cost, result_summary)
-                    VALUES (:ts, :agent, :task, :tool, :cost, :res)
-                """), {
-                    "ts": log.get('timestamp'),
-                    "agent": log.get('agent_name') or log.get('agent'),
-                    "task": log.get('task_content') or log.get('task'),
-                    "tool": log.get('tool_used') or log.get('tool'),
-                    "cost": float(log.get('cost') or 0.0),
-                    "res": res_content
-                })
-            
-            # 4. Cập nhật XP và Tầng cho Đặc vụ (Lấy mức cao nhất giữa 2 máy)
+                    # Ép kiểu an toàn cho Cost
+                    try:
+                        raw_cost = log.get('cost') or 0.0
+                        safe_cost = float(raw_cost)
+                    except (ValueError, TypeError):
+                        safe_cost = 0.0
+
+                    # Thực hiện ghi nhận (Sử dụng chuẩn tham số của SQLAlchemy)
+                    conn.execute(text("""
+                        INSERT OR IGNORE INTO work_logs 
+                        (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                        VALUES (:ts, :agent, :task, :tool, :cost, :res)
+                    """), {
+                        "ts": log.get('timestamp') or datetime.now().strftime("%H:%M %d/%m/%Y"),
+                        "agent": log.get('agent_name') or log.get('agent') or "UNKNOWN",
+                        "task": log.get('task_content') or log.get('task') or "Nhiệm vụ không tên",
+                        "tool": log.get('tool_used') or log.get('tool') or "SYNC_PULSE",
+                        "cost": safe_cost,
+                        "res": res_content
+                    })
+                    added_count += 1
+                except Exception: continue # Bỏ qua dòng lỗi lẻ
+
+            # --- 4. HỢP NHẤT KINH NGHIỆM (XP CONVERSION v9.4) ---
             for agent in agent_states:
-                # Dùng MAX(xp, :new_xp) để Cloud không bao giờ bị tụt Level nếu máy Local reset
-                conn.execute(text("""
-                    UPDATE agent_status 
-                    SET xp = MAX(IFNULL(xp, 0), :new_xp), 
-                        last_updated = CURRENT_TIMESTAMP
-                    WHERE role_tag = :tag
-                """), {
-                    "new_xp": int(agent.get('xp') or 0),
-                    "tag": agent.get('role_tag') or agent.get('agent_name')
-                })
+                try:
+                    role_tag = agent.get('role_tag') or agent.get('agent_name')
+                    new_xp_gain = int(agent.get('xp') or 0)
+                    if not role_tag or new_xp_gain <= 0: continue
+
+                    # Cộng dồn XP trực tiếp vào Cloud
+                    conn.execute(text("""
+                        INSERT INTO agent_status (role_tag, xp, last_updated)
+                        VALUES (:tag, :xp, CURRENT_TIMESTAMP)
+                        ON CONFLICT(role_tag) DO UPDATE SET
+                            xp = agent_status.xp + :xp,
+                            last_updated = CURRENT_TIMESTAMP
+                    """), {"xp": new_xp_gain, "tag": role_tag})
+                except Exception: continue
+
+            conn.commit() # Chốt hạ toàn bộ phiên đồng bộ
             
-            conn.commit() # Chốt hạ dữ liệu
-            
-        print(f"📡 [SYNC] Đã hợp nhất {len(new_logs)} lượt học mới vào Tầng 9 Cloud.")
-        return {"status": "SYNCED", "added": len(new_logs), "agents_updated": len(agent_states)}
+        print(colored(f"📡 [SYNC] Đã hợp nhất {added_count} logs và cập nhật XP thành công.", "green"))
+        return {"status": "SYNCED", "added": added_count, "agents_updated": len(agent_states)}
         
     except Exception as e:
-        print(f"❌ [SYNC ERROR] Thất bại: {str(e)}")
+        print(f"❌ [SYNC ERROR] Thất bại hệ thống: {str(e)}")
         return JSONResponse(status_code=500, content={"status": "ERROR", "msg": str(e)})
     
 async def auto_knowledge_diver():
@@ -2380,7 +2399,17 @@ async def get_project_cost(project_id: str):
         "total_workers": worker_count,
         "avg_cost_per_node": round(total_cost / worker_count, 5) if worker_count > 0 else 0
     }
-
+@app.get("/api/admin/active_workers")
+async def get_active_workers(x_api_key: str = Header(None)):
+    if x_api_key != ADMIN_SECRET: raise HTTPException(403)
+    with db_manager.get_connection() as conn:
+        # Lấy các worker đã có hoạt động trong 5 phút qua
+        result = conn.execute(text("""
+            SELECT DISTINCT assigned_to FROM learning_tasks 
+            WHERE last_updated > datetime('now', '-5 minutes') 
+            AND status = 'PROCESSING'
+        """)).fetchall()
+        return {"active_workers": [r[0] for r in result if r[0]]}
 # --- API 3: ADMIN NẠP DANH SÁCH VIỆC (Seed Tasks) ---
 
 @app.post("/api/admin/seed_tasks")
@@ -2604,7 +2633,7 @@ async def websocket_nexus(websocket: WebSocket):
 
 def save_work_log_to_db(agent, task, result, cost, timestamp):
     try:
-        conn = sqlite3.connect("ai_corp_projects.db")
+        conn = sqlite3.connect(DB_PATH)
         # Sử dụng tham số để tránh SQL Injection và lỗi định dạng
         query = """
             INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, cost, tool_used)
@@ -2980,7 +3009,45 @@ async def download_full_brain(background_tasks: BackgroundTasks): # <--- Thêm t
         # Nếu lỗi thì xóa file tạm ngay lập tức
         if os.path.exists(zip_path): os.remove(zip_path)
         return JSONResponse(status_code=500, content={"error": str(e)})
+@app.post("/api/admin/legacy_restore")
+async def legacy_restore(data: dict, x_api_key: str = Header(None)):
+    """
+    [RECOVERY]: Nạp lại toàn bộ di sản tri thức sau khi Reset Database.
+    """
+    if x_api_key != ADMIN_SECRET: 
+        raise HTTPException(403, "Chỉ CEO mới có quyền khôi phục di sản!")
+
+    logs = data.get("logs", [])
+    agents = data.get("agents", [])
     
+    try:
+        with db_manager.get_connection() as conn:
+            # 1. Khôi phục XP cho Đặc vụ
+            for a in agents:
+                conn.execute(text("""
+                    INSERT OR REPLACE INTO agent_status (role_tag, xp, current_topic, last_updated)
+                    VALUES (:tag, :xp, :topic, CURRENT_TIMESTAMP)
+                """), {"tag": a.get('role_tag'), "xp": a.get('xp', 0), "topic": a.get('current_topic')})
+
+            # 2. Nạp lại Nhật ký công việc (Bulk Insert)
+            for log in logs:
+                conn.execute(text("""
+                    INSERT OR IGNORE INTO work_logs 
+                    (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                    VALUES (:ts, :agent, :task, :tool, :cost, :res)
+                """), {
+                    "ts": log.get('timestamp'),
+                    "agent": log.get('agent_name'),
+                    "task": log.get('task_content'),
+                    "tool": log.get('tool_used'),
+                    "cost": log.get('cost', 0.0),
+                    "res": log.get('result_summary')
+                })
+            conn.commit()
+            
+        return {"status": "RESTORED", "logs": len(logs), "agents": len(agents)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})    
 if __name__ == "__main__":
     import uvicorn
     # Sử dụng biến môi trường PORT để tương thích Cloud Run sau này
@@ -2993,3 +3060,4 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
+
