@@ -2484,9 +2484,14 @@ async def websocket_nexus(websocket: WebSocket):
             # PHẦN 1: KHÔI PHỤC CÁC TÍNH NĂNG CŨ (CỦA NGÀI)
             # ============================================================
             
-            # 1. LẤY THÔNG TIN HỆ THỐNG (Thời gian thực)
-            current_time = datetime.now().strftime("%H:%M, Thứ %w, ngày %d/%m/%Y")
-            system_context = f"Hiện tại là {current_time}. Vị trí: Phan Thiết, Việt Nam."
+            # 1. THỜI GIAN THỰC (Bản nâng cấp Tầng 9)
+            now = datetime.now()
+            # Dùng cho Agent hiểu ngữ cảnh (Display)
+            display_time = now.strftime("%H:%M, %d/%m/%Y") 
+            # Dùng để ghi vào Sổ Cái sau này (ISO Standard)
+            db_timestamp = now.strftime("%Y-%m-%d %H:%M:%S") 
+            
+            system_context = f"Hiện tại là {display_time}. Vị trí: Phan Thiết, Việt Nam."
             
             # 2. HỒI TƯỞNG KÝ ỨC
             mem_ctx = ""
@@ -2517,29 +2522,63 @@ async def websocket_nexus(websocket: WebSocket):
             if is_simple and LLM_GEMINI_LOGIC:
                 print(colored("🚀 Kích hoạt Fast Track (Real-time Context)...", "yellow"))
                 try:
-                    # Gọi Gemini trả lời nhanh câu hỏi ngày giờ
+                    # 1. Thực thi phản hồi nhanh
                     ai_msg = await LLM_GEMINI_LOGIC.ainvoke(full_prompt)
                     reply_content = ai_msg.content
-                    active_agent = "J.A.R.V.I.S"
-                except: pass
+                    active_agent = "SECRETARY" # Đổi tên đặc vụ ghi chép cho chuyên nghiệp
+
+                    # 2. GHI NHẬN DI SẢN NGAY LẬP TỨC (Dùng db_timestamp chuẩn ISO)
+                    # Tính toán chi phí giả định cực thấp cho Fast Track
+                    fast_cost = 0.00001 
+                    
+                    # Hàm ghi vào DB (Ngài cần đảm bảo hàm này chạy đồng bộ hoặc bọc trong threadpool)
+                    loop = asyncio.get_event_loop()
+                    await run_in_threadpool(lambda: save_work_log_to_db(
+                        agent=active_agent,
+                        task=data,
+                        result=reply_content,
+                        cost=fast_cost,
+                        timestamp=db_timestamp # Sử dụng YYYY-MM-DD HH:MM:SS
+                    ))
+                    
+                    print(colored(f"💰 [SYSTEM]: {active_agent} đã nạp tri thức nhanh vào Sổ Cái.", "green"))
+                except Exception as e:
+                    print(colored(f"⚠️ Fast Track Error: {e}", "red"))
+                    pass
             
-            # B. DEEP THINKING (Nếu Fast Track bỏ qua HOẶC là lệnh Vẽ/Code)
+            # B. DEEP THINKING (Giao thức bọc thép v23.7)
             if not reply_content and AI_AVAILABLE:
-                # Truyền session_id vào thread_id để giữ mạch chuyện riêng biệt
                 config = {"configurable": {"thread_id": session_id}}
-                # Gọi bộ não LangGraph (Supervisor -> Designer/Coder...)
                 print(colored("🧩 Chuyển giao cho Bộ Não Trung Tâm (LangGraph)...", "blue"))
                 
-                input_message = HumanMessage(content=full_prompt)
-                final_state = await ai_app.ainvoke({"messages": [input_message]}, config=config)
-                
-                # Lấy kết quả từ Agent cuối cùng
-                last_message = final_state['messages'][-1]
-                reply_content = last_message.content
-                
-                # Xác định ai vừa làm việc (Để Dashboard sáng đèn)
-                active_agent = final_state.get("current_agent", "J.A.R.V.I.S")
+                try:
+                    input_message = HumanMessage(content=full_prompt)
+                    # Thực thi LangGraph
+                    final_state = await ai_app.ainvoke({"messages": [input_message]}, config=config)
+                    
+                    # Trích xuất kết quả
+                    last_message = final_state['messages'][-1]
+                    reply_content = last_message.content
+                    active_agent = final_state.get("current_agent", "J.A.R.V.I.S")
 
+                    # --- PHẦN KIỂM TOÁN DI SẢN (AUDIT) ---
+                    # Tính toán chi phí thực tế từ token hoặc độ phức tạp (Giả lập)
+                    estimated_cost = len(reply_content) * 0.000005 
+                    
+                    # Ghi nhận vào Sổ Cái bằng chuẩn ISO db_timestamp
+                    loop = asyncio.get_event_loop()
+                    await run_in_threadpool(lambda: save_work_log_to_db(
+                        agent=active_agent,
+                        task=data,
+                        result=reply_content,
+                        cost=estimated_cost,
+                        timestamp=db_timestamp # QUAN TRỌNG: YYYY-MM-DD HH:MM:SS
+                    ))
+                    print(colored(f"💰 [SYSTEM]: {active_agent} đã nạp tri thức sâu vào Sổ Cái.", "green"))
+
+                except Exception as e:
+                    print(colored(f"🚨 Lỗi LangGraph: {e}", "red"))
+                    reply_content = "Thưa CEO, bộ não trung tâm gặp sự cố trong quá trình hội chẩn. Đang tái khởi động..."
             # ============================================================
             # PHẦN 3: PHẢN HỒI (DẠNG JSON CHO DASHBOARD)
             # ============================================================
@@ -2562,6 +2601,20 @@ async def websocket_nexus(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WS Error: {e}")
         manager.disconnect(websocket)
+
+def save_work_log_to_db(agent, task, result, cost, timestamp):
+    try:
+        conn = sqlite3.connect("ai_corp_projects.db")
+        # Sử dụng tham số để tránh SQL Injection và lỗi định dạng
+        query = """
+            INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, cost, tool_used)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        conn.execute(query, (timestamp, agent, task, result, cost, "FAST_TRACK"))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"🚨 Lỗi ghi Sổ Cái: {e}")
 
 def hunt_freelance_projects(keyword="python"):
     # Ví dụ quét từ một nguồn tin tuyển dụng/dự án (đã được cấu hình RSS hoặc API)
