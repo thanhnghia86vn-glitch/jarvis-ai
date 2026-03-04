@@ -345,6 +345,9 @@ def log_work_to_db(agent_name=None, task=None, result=None, tool="Universal-AI",
     - Tự động khởi tạo Schema nếu Disk bị trống
     - Cơ chế WAL chống khóa DB
     """
+    if result is None or str(result).strip().lower() == "none" or len(str(result).strip()) < 10:
+        print(colored(f"❌ [ACADEMY] {agent_name} nộp bài rỗng hoặc quá ngắn. Hủy lượt ghi để tránh rác DB.", "red"))
+        return False # Thoát hàm, không ghi gì cả
     # Xử lý đối số linh hoạt để dập tắt lỗi ACADEMY CRASH
     actual_agent = agent_name or kwargs.get('agent', 'Unknown-Agent')
     actual_task = task or kwargs.get('task_content', 'Nhiệm vụ không tên')
@@ -2062,62 +2065,65 @@ def legal_node(state: AgentState):
 # 🚩 [SECTION 6.11] MARKETING & GROWTH NODE (THE MEGAPHONE)
 def marketing_node(state: AgentState):
     """
-    Agent CMO: Chuyên gia Marketing đa kênh và Tăng trưởng (Growth Hacking).
-    Nâng cấp 2026: Tích hợp mô hình tâm lý hành vi và tối ưu hóa chuyển đổi (CRO).
+    Agent CMO v5.0: Đọc trọn vẹn ngữ cảnh kỹ thuật và ghi lại di sản marketing toàn phần.
     """
-    print(colored("[📢 MARKETING] Đang lập chiến dịch quảng bá bùng nổ...", "yellow", attrs=["bold"]))
+    print(colored("[📢 MARKETING] Đang phân tích linh hồn sản phẩm và lập chiến dịch...", "yellow", attrs=["bold"]))
     
-    # 1. TRÍCH XUẤT NGỮ CẢNH CHIẾN LƯỢC
+    # 1. TRÍCH XUẤT NGỮ CẢNH TOÀN PHẦN (Full Context)
     messages = state.get("messages", [])
     if not messages: return {"next_step": "FINISH"}
     
     last_msg = messages[-1].content
     is_pure_mkt = "[MARKETING]" in last_msg.upper()
     
-    # Lấy 5 tin nhắn gần nhất để hiểu "Linh hồn" sản phẩm từ Kỹ thuật & R&D
-    project_context = "\n".join([f"[{m.type.upper()}]: {m.content[:400]}..." for m in messages[-5:]])
+    # Lấy toàn bộ nội dung 5 tin nhắn gần nhất (Xóa bỏ [:400])
+    # Dùng join/split để tối ưu hóa không gian nhưng giữ 100% ý nghĩa
+    project_context = "\n".join([f"[{m.type.upper()}]: {str(m.content).strip()}" for m in messages[-5:]])
     
-    # 2. PROMPT MARKETING CHIẾN THUẬT (MARKETING FRAMEWORKS)
+    # 2. PROMPT MARKETING CHIẾN THUẬT (Thêm yêu cầu chiều sâu)
     prompt = f"""
         <marketing_mission>
             Bạn là Giám đốc Marketing (CMO) của AI Corporation. 
-            Nhiệm vụ: Biến các thông số kỹ thuật khô khan thành thông điệp bán hàng triệu đô.
+            Nhiệm vụ: Phẫu thuật các thông số kỹ thuật và biến chúng thành kế hoạch truyền thông thực thi ngay được.
         </marketing_mission>
 
         <strategy_framework>
-            1. [UNIQUE SELLING POINT - USP]: Nêu bật 3 đặc điểm "độc bản" từ dữ liệu kỹ thuật.
-            2. [FACEBOOK ADS]: Sử dụng mô hình PAS (Problem - Agitate - Solve) cho tệp khách hàng đại chúng.
-            3. [LINKEDIN ARTICLES]: Sử dụng mô hình AIDA cho tệp B2B, nhấn mạnh vào hiệu quả kinh tế và tính bền vững.
-            4. [VISUAL DIRECTION]: Cung cấp 02 Prompt tiếng Anh chi tiết (Cấu trúc: Style, Subject, Lighting, Camera angle) để Agent Artist thực thi thiết kế.
+            1. [USP ANALYSIS]: Phân tích sâu 3 lợi thế cạnh tranh dựa trên dữ liệu R&D.
+            2. [PAS MODEL]: Viết mẫu quảng cáo Facebook Ads (Problem - Agitate - Solve).
+            3. [B2B STRATEGY]: Soạn thảo bài đăng LinkedIn chuyên sâu (AIDA).
+            4. [VISUAL DIRECTION]: Cung cấp 02 Prompt tiếng Anh chi tiết cho Artist.
         </strategy_framework>
 
         <output_standard>
-            - Ngôn ngữ: Thuyết phục, giàu cảm xúc nhưng vẫn chuyên nghiệp.
-            - Phân khúc: Tập trung vào đối tượng khách hàng năm 2026.
+            - ĐỘ DÀI: Báo cáo phải chi tiết, tối thiểu 1000 ký tự.
+            - TƯ DUY: Kết hợp tâm lý hành vi khách hàng năm 2026.
         </output_standard>
-        """
+    """
 
     try:
-        # 3. THỰC THI (GPT-4o là bậc thầy về ngôn ngữ và tâm lý khách hàng)
+        # 3. THỰC THI QUA GPT-4O
         response = LLM_GPT4.invoke([
             SystemMessage(content=prompt),
             HumanMessage(content=f"DỮ LIỆU SẢN PHẨM & YÊU CẦU:\n{project_context}\n\nLệnh bổ sung: {last_msg}")
         ])
 
-        # 4. GHI NHẬT KÝ CHIẾN DỊCH (CRM LOGGING)
+        full_marketing_plan = response.content
+
+        # 4. GHI NHẬT KÝ CHIẾN DỊCH (Ghi toàn văn - Fix lỗi nội dung ngắn)
+        # Ngài lưu ý: Ghi 'full_marketing_plan' thay vì ghi số lượng đếm
         log_work_to_db(
-            agent="Marketing",
-            task="Xây dựng kế hoạch truyền thông",
-            result=f"Visual Prompts: {response.content.count('Visual')}",
-            tool="Marketing-Intelligence-V2"
+            agent_name="Marketing",
+            task=f"Lập chiến dịch: {last_msg[:50]}...",
+            result=full_marketing_plan, # GHI TOÀN BỘ Ở ĐÂY
+            tool="Marketing-Intelligence-V2-Full",
+            start_time=time.time() # Để tính duration chính xác
         )
 
         # 5. ĐỊNH TUYẾN THÔNG MINH
-        # Tự động đẩy sang Artist nếu CMO đề xuất có hình ảnh, hoặc quay về Supervisor
-        next_destination = "Artist" if "VISUAL" in response.content.upper() and not is_pure_mkt else "Supervisor"
+        next_destination = "Artist" if "VISUAL" in full_marketing_plan.upper() and not is_pure_mkt else "Supervisor"
 
         return {
-            "messages": [AIMessage(content=f"📢 **[CHIẾN DỊCH MARKETING & TĂNG TRƯỞNG]**\n\n{response.content}")],
+            "messages": [AIMessage(content=f"📢 **[CHIẾN DỊCH MARKETING & TĂNG TRƯỞNG]**\n\n{full_marketing_plan}")],
             "next_step": "FINISH" if is_pure_mkt else next_destination,
             "current_agent": "Marketing"
         }
@@ -2125,11 +2131,10 @@ def marketing_node(state: AgentState):
     except Exception as e:
         print(colored(f"🚨 [MARKETING ERROR]: {str(e)}", "red", attrs=["bold"]))
         return {
-            "messages": [AIMessage(content=f"❌ **LỖI CHIẾN DỊCH TRUYỀN THÔNG**:\n\nSự cố phân tích thị trường: `{str(e)}`")], 
+            "messages": [AIMessage(content=f"❌ **LỖI CHIẾN DỊCH TRUYỀN THÔNG**:\n\n{str(e)}")], 
             "next_step": "FINISH",
             "current_agent": "Marketing"
         }
-
 # 🚩 [SECTION 6.12] ARTIST NODE (THE VIRTUAL STUDIO V3)
 def artist_node(state: AgentState):
     """
@@ -4284,11 +4289,18 @@ async def specialized_training_job(role_tag: str):
         )
         
         print(colored(f"✅ [LEARNED] {role_tag} đã chinh phục kiến thức tầng {current_level}!", "green"))
-
+        return {"score": xp_gain, "content": thesis.content}
     except Exception as e:
-        print(colored(f"🚨 [LEARNING CRASH]: {e}", "red"))
-        # Hộp đen cứu hộ vẫn giữ lại dữ liệu thô để CEO tra cứu
-        await validate_and_save_xp(db_path, clean_name, role_tag, f"FAILSAFE: {target_topic}", str(research_results), "BLACK-BOX-SAVE", 20)
+        error_msg = f"🚨 [CRITICAL SYSTEM ERROR]: {str(e)}"
+        print(colored(error_msg, "red"))
+        
+        # CỨU HỘ: Tổng hợp những gì đã tìm được trước khi crash
+        fallback_content = f"BẢN TIN CỨU HỘ - {target_topic}\n\nLỗi phát sinh: {str(e)}\n\nDữ liệu thô thu thập được:\n" + "\n".join(research_results)
+        
+        await validate_and_save_xp(db_path, clean_name, role_tag, f"FAILSAFE: {target_topic}", fallback_content, "BLACK-BOX-SAVE", 20)
+        
+        # QUAN TRỌNG: Phải return ở đây để auto_learning_cycle không nhận về None
+        return {"score": 20, "content": fallback_content}
 
 # 🏛️ [SUPREME COUNCIL] - HIỆP ƯỚC TRANH BIỆN SINH TỬ
 async def supreme_council_session(role_tag, clean_name, db_path):
