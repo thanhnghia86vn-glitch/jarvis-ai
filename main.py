@@ -4187,22 +4187,18 @@ def extract_list(content: str) -> list:
 
 # 🚩 [SECTION 8.2] SUPREME TRAINING ENGINE (VÒNG LẶP 9 TẦNG & 5-CELL)
 async def specialized_training_job(role_tag: str):
-    thesis_prompt = f"""
-        BẠN LÀ {role_tag} EXPERT. 
-        CHỦ ĐỀ: "{target_topic}".
-
-        ⚠️ LỆNH CẤM: 
-        - TUYỆT ĐỐI KHÔNG đề cập đến lỗi 'AsyncDDGS' hay bất kỳ lỗi thư viện Python nào.
-        - KHÔNG viết về kỹ thuật phần mềm trừ khi bạn là [CODER].
-        - Nếu dữ liệu thô ({research_results}) chứa lỗi kỹ thuật, hãy BỎ QUA và chỉ tập trung vào chuyên môn {role_tag} của bạn.
-
-        HÃY VIẾT LUẬN VĂN THỰC CHIẾN CHO PHUC VINH APP TẠI PHAN THIẾT.
-        """
+    """
+    HỆ THỐNG ĐÀO TẠO 9 TẦNG - BẢN VÁ LỖI SCOPE v8.5
+    """
     print(colored(f"\n⚡ [EVOLVING] {role_tag} đang tiến vào vòng lặp học thức...", "cyan", attrs=["bold"]))
     
-    # --- PHẦN 0: KHỞI TẠO HỆ THỐNG TỰ CHỮA LÀNH (SELF-HEALING DB) ---
+    # --- KHỞI TẠO BIẾN AN TOÀN (CHỐNG CRASH) ---
+    db_path = "/var/data/ai_corp_projects.db"
+    research_results = []
+    target_topic = "Khởi tạo hệ thống tri thức" # Giá trị mặc định để tránh lỗi unbound local variable
+    clean_name = role_tag.replace("[","").replace("]","")
+
     try:
-        db_path = "ai_corp_projects.db"
         async with aiosqlite.connect(db_path) as db:
             await db.execute("CREATE TABLE IF NOT EXISTS agent_status (role_tag TEXT PRIMARY KEY, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1)")
             await db.execute("CREATE TABLE IF NOT EXISTS work_logs (id INTEGER PRIMARY KEY, timestamp TEXT, agent_name TEXT, task_content TEXT, result_summary TEXT, tool_used TEXT, xp_gain INTEGER)")
@@ -4211,104 +4207,74 @@ async def specialized_training_job(role_tag: str):
                 row = await cursor.fetchone()
                 current_xp = row[0] if row else 0
         
-        # Tính toán Tầng (Level) dựa trên 9 bậc học thức
         current_level = min(9, (current_xp // 1000) + 1)
         step_count = (current_xp // 150) + 1
-        clean_name = role_tag.replace("[","").replace("]","")
         
         print(colored(f"💠 [LEVEL {current_level}] | Step: {step_count} | XP: {current_xp}", "blue"))
 
-    except Exception as e:
-        print(colored(f"❌ Critical DB Error: {e}", "red"))
-        return
+        # --- ĐIỀU HƯỚNG CHU KỲ ---
+        if step_count % 20 == 0: 
+            return await supreme_council_session(role_tag, clean_name, db_path)
+        
+        topics = CURRICULUM.get(role_tag, ["Nâng cao năng lực chuyên môn"])
+        base_topic = topics[int(step_count * 0.75) % len(topics)]
+        target_topic = base_topic # Gán giá trị thực tế sau khi tính toán xong
+        
+        # --- KIỂM TOÁN DI SẢN & PIVOT ---
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM work_logs WHERE task_content LIKE ? AND agent_name = ?", 
+                (f"%{base_topic}%", clean_name)
+            ) as cursor:
+                row = await cursor.fetchone()
+                learned_count = row[0] if row else 0
 
-    # --- ĐIỀU HƯỚNG CHU KỲ ĐÀO TẠO ---
-    if step_count % 20 == 0: 
-        return await supreme_council_session(role_tag, clean_name, db_path)
-    
-    # --- CHIẾN LƯỢC HỌC TẬP 5-CELL (DEEP LEARNING) ---
-    topics = CURRICULUM.get(role_tag, ["Nâng cao năng lực chuyên môn"])
-    base_topic = topics[int(step_count * 0.75) % len(topics)]
-    
-    # --- 1. TRUY LỤC KÝ ỨC & BẺ LÁI CHIẾN THUẬT (PIVOT) ---
-    target_topic = base_topic
-    
-    # [KIỂM TOÁN DI SẢN]: Truy vấn trực tiếp SQL để xem độ bão hòa tri thức
-    async with aiosqlite.connect(db_path) as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM work_logs WHERE task_content LIKE ? AND agent_name = ?", 
-            (f"%{base_topic}%", clean_name)
-        ) as cursor:
-            row = await cursor.fetchone()
-            learned_count = row[0] if row else 0
+        if learned_count >= 1: # Ép PIVOT ngay lập tức để làm sạch tri thức
+            print(colored(f"♻️ [AUDIT] Ép PIVOT TẦNG CAO cho {role_tag}...", "yellow"))
+            pivot_prompt = f"Bạn là {role_tag} Tầng {current_level}. Hãy bẻ lái chủ đề '{base_topic}' sang một khía cạnh cực khó về tương lai 2026. KHÔNG nhắc tới lỗi lập trình. Trả về tên chủ đề."
+            pivot_res = await LLM_UNIVERSAL.ainvoke(pivot_prompt)
+            target_topic = pivot_res.content.strip()
+            print(colored(f"🚀 [PIVOTED] Mục tiêu mới: {target_topic}", "cyan", attrs=["bold"]))
 
-    # Nếu đã học > 2 lần, ép AI phải Pivot sang ngách khó hơn (Deep Dive)
-    if learned_count >= 2:
-        print(colored(f"♻️ [AUDIT] '{base_topic}' đã có {learned_count} bản lưu. Đang ép PIVOT TẦNG CAO...", "yellow"))
-        pivot_prompt = f"""
-        Bạn là {role_tag} Tầng {current_level}. Chủ đề '{base_topic}' đã quá quen thuộc.
-        Dựa trên 16,743 dữ liệu di sản, hãy bẻ lái sang một khía cạnh CỰC KHÓ, 
-        mang tính dự báo năm 2026 hoặc giải quyết nghịch lý kỹ thuật của {base_topic}.
-        Chỉ trả về tên chủ đề mới, không giải thích.
-        """
-        pivot_res = await LLM_UNIVERSAL.ainvoke(pivot_prompt)
-        target_topic = pivot_res.content.strip()
-        print(colored(f"🚀 [PIVOTED] Mục tiêu mới: {target_topic}", "cyan", attrs=["bold"]))
-
-    # --- 2. PHẪU THUẬT 5-CELL THEO TẦNG CẤP (DYNAMIC CELLS) ---
-    print(colored(f"🔬 Đang phẫu thuật 5-Cell cho: {target_topic}", "magenta"))
-    try:
-        # Cấu trúc Cell thay đổi theo Level: Càng cao càng vĩ mô và rủi ro
+        # --- PHẪU THUẬT 5-CELL ---
         cell_strategy = "root_logic, engineering, risk, phuc_vinh_app, future_2030"
-        if current_level >= 7:
-            cell_strategy = "paradox_logic, infrastructure_stress, black_swan_risks, ecosystem_impact, legacy_2030"
-
-        cells_prompt = f"Phân rã '{target_topic}' thành JSON 5-Cell theo chiến lược: {cell_strategy}."
+        cells_prompt = f"Phân rã '{target_topic}' thành JSON 5-Cell theo chiến lược: {cell_strategy}. TUYỆT ĐỐI KHÔNG đề cập lỗi AsyncDDGS."
         cells_res = await LLM_UNIVERSAL.ainvoke(cells_prompt)
         cells = json.loads(extract_code_block(cells_res.content))
         
-        research_results = []
         for cell_name, cell_desc in cells.items():
             print(colored(f"  ➔ Researching Cell: {cell_name}...", "dark_grey"))
             data = await free_deep_research(f"{cell_name} in {target_topic}: {cell_desc}")
             research_results.append(f"### {cell_name.upper()}\n{data}")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
-        # --- 3. TỔNG HỢP LUẬN ÁN & KIỂM ĐỊNH GIÁ TRỊ ---
+        # --- TỔNG HỢP LUẬN ÁN (VACCINE PROMPT) ---
         thesis_prompt = f"""
-        Bạn là {role_tag} cấp bậc EXPERT. Hãy viết luận văn chuyên sâu từ 5 Cell dữ liệu: {research_results}.
-        Yêu cầu: Không lặp lại kiến thức cũ. Tập trung vào giải pháp thực chiến cho Phuc Vinh App/Phan Thiết.
+        Bạn là {role_tag} EXPERT. Hãy viết luận văn chuyên sâu về: {target_topic}.
+        CẤM: Không nhắc đến lỗi 'AsyncDDGS' hay DuckDuckGo library.
+        YÊU CẦU: Tập trung vào giải pháp cho Phuc Vinh App/Phan Thiết.
+        Dữ liệu thô: {research_results}
         """
         thesis = await LLM_UNIVERSAL.ainvoke(thesis_prompt)
         
-        # Kiểm tra nếu AI trả về rỗng (NoneType Guard)
         if not thesis or not thesis.content:
             raise ValueError("AI không tạo ra được giá trị tri thức mới.")
 
-        # --- 4. LƯU TRỮ & PHÂN PHỐI XP (CÂN BẰNG LẠI) ---
-        # Thưởng XP cao cho các bài PIVOT thành công, giảm XP nếu học lại bài cũ
-        xp_gain = 150 * current_level if target_topic != base_topic else 50
+        xp_gain = 150 * current_level
         
         await validate_and_save_xp(
             db_path, clean_name, role_tag, 
             f"Lvl{current_level}-Study: {target_topic}", 
-            thesis.content, "Deep-5Cell-v6.5", xp_gain
+            thesis.content, "Deep-5Cell-v8.5", xp_gain
         )
         
-        print(colored(f"✅ [LEARNED] {role_tag} đã chinh phục kiến thức tầng {current_level}!", "green"))
         return {"score": xp_gain, "content": thesis.content}
-    except Exception as e:
-        error_msg = f"🚨 [CRITICAL SYSTEM ERROR]: {str(e)}"
-        print(colored(error_msg, "red"))
-        
-        # CỨU HỘ: Tổng hợp những gì đã tìm được trước khi crash
-        fallback_content = f"BẢN TIN CỨU HỘ - {target_topic}\n\nLỗi phát sinh: {str(e)}\n\nDữ liệu thô thu thập được:\n" + "\n".join(research_results)
-        
-        await validate_and_save_xp(db_path, clean_name, role_tag, f"FAILSAFE: {target_topic}", fallback_content, "BLACK-BOX-SAVE", 20)
-        
-        # QUAN TRỌNG: Phải return ở đây để auto_learning_cycle không nhận về None
-        return {"score": 20, "content": fallback_content}
 
+    except Exception as e:
+        error_msg = f"🚨 [ACADEMY CRASH]: {str(e)}"
+        print(colored(error_msg, "red"))
+        fallback_content = f"Dữ liệu cứu hộ cho {target_topic}: {str(research_results)}"
+        return {"score": 20, "content": fallback_content}
 # 🏛️ [SUPREME COUNCIL] - HIỆP ƯỚC TRANH BIỆN SINH TỬ
 async def supreme_council_session(role_tag, clean_name, db_path):
     print(colored(f"🏛️ [SUPREME COUNCIL] PHIÊN ĐIỀU TRẦN TỐI CAO: {role_tag}", "red", attrs=["bold", "blink"]))
