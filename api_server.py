@@ -1945,29 +1945,28 @@ async def knowledge_processing_worker():
 
 # 3. Hàm API đã được tối ưu hóa
 @app.post("/api/worker/submit_knowledge")
-async def receive_knowledge(data: LearningResult, background_tasks: BackgroundTasks, x_api_key: str = Header(None)):
-    """
-    API v10.0: Nhận tri thức siêu tốc, không gây nghẽn Server.
-    """
+async def receive_knowledge(data: LearningResult, x_api_key: str = Header(None)):
     if x_api_key != ADMIN_SECRET:
-        raise HTTPException(403, "Sai mật mã kết nối!")
+        raise HTTPException(403, "Sai mật mã!")
 
-    # Đưa vào hàng đợi để xử lý dần (Non-blocking)
-    # Chúng ta đóng gói lại thành dict để dễ xử lý trong Queue
+    # --- BỘ LỌC CHỐNG TRI THỨC NGẮN (FIX LỖI 4 KÝ TỰ) ---
+    content_clean = str(data.content).strip()
+    
+    if len(content_clean) < 50:  # Nếu dưới 50 ký tự thì không cho nạp não
+        logger.warning(f"⚠️ Từ chối tri thức quá ngắn từ {data.worker_id}")
+        return {
+            "status": "rejected", 
+            "msg": "Nội dung quá sơ sài. Yêu cầu tối thiểu 50 ký tự để nạp não."
+        }
+
+    # Nếu đạt chuẩn, đưa vào hàng đợi xử lý
     await knowledge_queue.put({
         "worker_id": data.worker_id,
-        "content": data.content,
+        "content": content_clean,
         "source": data.source
     })
-
-    logger.info(f"📥 [QUEUED] Đã xếp hàng tri thức từ Worker [{data.worker_id}]")
     
-    # Trả về kết quả ngay lập tức cho máy vệ tinh để nó đi làm việc khác
-    return {
-        "status": "queued", 
-        "msg": "Tri thức đã được tiếp nhận và đang xếp hàng nạp vào bộ não trung tâm."
-    }
-
+    return {"status": "queued", "msg": "Đã tiếp nhận tri thức đạt chuẩn."}
 
 # --- API 1: PHÁT NHIỆM VỤ (Dành cho Worker xin việc) ---
 @app.post("/api/worker/get_task")
