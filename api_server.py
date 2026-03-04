@@ -1908,22 +1908,66 @@ async def api_learn(request: LearnRequest, x_api_key: str = Header(None)):
     res = learn_knowledge(request.text)
     return {"status": "success", "message": res}
 
+# 1. Khai báo hàng đợi tri thức (Global Queue)
+knowledge_queue = asyncio.Queue()
+
+# 2. Worker xử lý ngầm (Chạy xuyên suốt vòng đời App)
+async def knowledge_processing_worker():
+    while True:
+        # Lấy tri thức từ hàng đợi
+        data_item = await knowledge_queue.get()
+        try:
+            # Ghi nhận vào Sổ Cái trước để CEO theo dõi được tiến độ
+            timestamp = datetime.now().strftime("%H:%M %d/%m/%Y")
+            with db_manager.get_connection() as conn:
+                conn.execute(text("""
+                    INSERT INTO work_logs (timestamp, agent_name, task_content, tool_used, cost, result_summary)
+                    VALUES (:ts, :agent, :task, :tool, :cost, :res)
+                """), {
+                    "ts": timestamp,
+                    "agent": f"WORKER_{data_item['worker_id']}",
+                    "task": f"Nạp tri thức: {data_item['source'][:50]}",
+                    "tool": "ACADEMY_BRAIN_INJECTOR",
+                    "cost": 0.0001, # Chi phí nạp não cực thấp
+                    "res": f"Nguồn: {data_item['source']}\nNội dung: {data_item['content'][:200]}..."
+                })
+                conn.commit()
+
+            # Thực hiện nạp vào Vector DB (Phần nặng nhất)
+            if AI_AVAILABLE:
+                await run_in_threadpool(lambda: learn_knowledge(data_item['content']))
+            
+            print(colored(f"🧠 [BRAIN] Đã nạp xong tri thức từ {data_item['worker_id']}", "green"))
+        except Exception as e:
+            print(colored(f"❌ [BRAIN ERROR] Lỗi nạp não: {e}", "red"))
+        finally:
+            knowledge_queue.task_done()
+
+# 3. Hàm API đã được tối ưu hóa
 @app.post("/api/worker/submit_knowledge")
-async def receive_knowledge(data: LearningResult, x_api_key: str = Header(None)):
+async def receive_knowledge(data: LearningResult, background_tasks: BackgroundTasks, x_api_key: str = Header(None)):
     """
-    API dành cho các máy vệ tinh nộp kiến thức đã học được về kho trung tâm.
+    API v10.0: Nhận tri thức siêu tốc, không gây nghẽn Server.
     """
     if x_api_key != ADMIN_SECRET:
         raise HTTPException(403, "Sai mật mã kết nối!")
+
+    # Đưa vào hàng đợi để xử lý dần (Non-blocking)
+    # Chúng ta đóng gói lại thành dict để dễ xử lý trong Queue
+    await knowledge_queue.put({
+        "worker_id": data.worker_id,
+        "content": data.content,
+        "source": data.source
+    })
+
+    logger.info(f"📥 [QUEUED] Đã xếp hàng tri thức từ Worker [{data.worker_id}]")
     
-    # Lưu vào bộ nhớ dài hạn
-    logger.info(f"📥 Nhận kiến thức từ Worker [{data.worker_id}]: {data.source}")
-    
-    if AI_AVAILABLE:
-        # Chạy ngầm việc embedding vào ChromaDB
-        await run_in_threadpool(lambda: learn_knowledge(data.content))
-        
-    return {"status": "accepted", "msg": "Đã nạp vào bộ não trung tâm"}
+    # Trả về kết quả ngay lập tức cho máy vệ tinh để nó đi làm việc khác
+    return {
+        "status": "queued", 
+        "msg": "Tri thức đã được tiếp nhận và đang xếp hàng nạp vào bộ não trung tâm."
+    }
+
 
 # --- API 1: PHÁT NHIỆM VỤ (Dành cho Worker xin việc) ---
 @app.post("/api/worker/get_task")
@@ -3060,4 +3104,3 @@ if __name__ == "__main__":
     
     # Reload=True giúp server tự khởi động lại khi sửa code (Dev mode)
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
-
