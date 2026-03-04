@@ -3249,7 +3249,7 @@ async def auto_learning_cycle():
             log_work_to_db(
                 agent_name="ACADEMY_MONITOR",
                 task_content=f"📘 [DI SẢN] Nghiên cứu: {current_agent}",
-                result_summary=full_content, # GHI ĐẦY ĐỦ Ở ĐÂY
+                result=full_content, # GHI ĐẦY ĐỦ Ở ĐÂY
                 tool="Evolution-v7.0-FullIntel",
                 cost=0.00004,
                 xp_gain=xp_gain
