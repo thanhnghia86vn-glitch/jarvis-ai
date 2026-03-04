@@ -4187,10 +4187,17 @@ def extract_list(content: str) -> list:
 
 # 🚩 [SECTION 8.2] SUPREME TRAINING ENGINE (VÒNG LẶP 9 TẦNG & 5-CELL)
 async def specialized_training_job(role_tag: str):
-    """
-    HỆ THỐNG ĐÀO TẠO 9 TẦNG (WISDOM LEVELS) & CHIẾN LƯỢC 5-CELL.
-    Kết hợp: Phẫu thuật bản nguyên + Tranh biện sinh tử + Cứu hộ hộp đen.
-    """
+    thesis_prompt = f"""
+        BẠN LÀ {role_tag} EXPERT. 
+        CHỦ ĐỀ: "{target_topic}".
+
+        ⚠️ LỆNH CẤM: 
+        - TUYỆT ĐỐI KHÔNG đề cập đến lỗi 'AsyncDDGS' hay bất kỳ lỗi thư viện Python nào.
+        - KHÔNG viết về kỹ thuật phần mềm trừ khi bạn là [CODER].
+        - Nếu dữ liệu thô ({research_results}) chứa lỗi kỹ thuật, hãy BỎ QUA và chỉ tập trung vào chuyên môn {role_tag} của bạn.
+
+        HÃY VIẾT LUẬN VĂN THỰC CHIẾN CHO PHUC VINH APP TẠI PHAN THIẾT.
+        """
     print(colored(f"\n⚡ [EVOLVING] {role_tag} đang tiến vào vòng lặp học thức...", "cyan", attrs=["bold"]))
     
     # --- PHẦN 0: KHỞI TẠO HỆ THỐNG TỰ CHỮA LÀNH (SELF-HEALING DB) ---
