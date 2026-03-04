@@ -104,7 +104,7 @@ try:
     LLM_GPT4 = ChatOpenAI(
         model="gpt-4o",
         api_key=os.environ.get("OPENAI_API_KEY"),
-        temperature=0
+        temperature=0,
         max_tokens=4096
     )
     print("✅ LLM_GPT4: Ready (Strategy & Logic).")
@@ -115,9 +115,9 @@ try:
     LLM_CLAUDE = ChatAnthropic(
         model="claude-sonnet-4-5", # Hoặc bản 4.5 như ngài yêu cầu
         api_key=os.environ.get("ANTHROPIC_API_KEY"),
-        temperature=0.4
+        temperature=0.4,
         max_tokens=8192,          # ✅ MỞ RỘNG TỐI ĐA: Cho phép viết luận văn dài hàng chục trang
-        timeout=120,
+        timeout=120
     )
     print("✅ LLM_CLAUDE (Anthropic): Ready (Architecture & Storytelling).")
 except: LLM_CLAUDE = None
@@ -127,7 +127,7 @@ try:
     LLM_FAST = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
-        temperature=0.3
+        temperature=0.3,
         max_output_tokens=8192
 
     )
@@ -140,7 +140,7 @@ try:
     LLM_GEMINI_LOGIC = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash-lite", 
         google_api_key=os.environ.get("GOOGLE_API_KEY"),
-        temperature=0.3
+        temperature=0.3,
         max_output_tokens=8192
     )
     
