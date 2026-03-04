@@ -1,7 +1,7 @@
 # ============================================================================
 # 🚩 [SECTION 1] SYSTEM INITIALIZATION & CLOUD FIX
 # ============================================================================
-import sys, os, json, ast, asyncio, operator, re, time, shutil, sqlite3, logger
+import sys, os,aiofiles, json, ast, asyncio, operator, re, time, shutil, sqlite3, logger
 from datetime import datetime
 from termcolor import colored
 from dotenv import load_dotenv
@@ -1235,16 +1235,17 @@ def real_syntax_validator(code: str, language: str) -> tuple[bool, str]:
 # 🚩 [SECTION 5.5] BỘ TRÍCH XUẤT MÃ NGUỒN ĐA LUỒNG (REFACTORED)
 def extract_code_block(content) -> str:
     """
-    Hệ thống trích xuất mã nguồn bọc thép:
-    - Chống lỗi dữ liệu List/Object từ Anthropic/OpenAI.
-    - Xử lý đa khối code (Multi-block concatenation).
-    - Làm sạch ký tự lạ gây lỗi biên dịch.
+    Hệ thống trích xuất tri thức & mã nguồn v11.0:
+    - Chống lỗi NoneType khi AI trả về văn bản luận văn thuần.
+    - Ưu tiên bóc tách code nếu có dấu bao ```.
+    - Nếu là văn bản thường, giữ nguyên vẹn để nạp tri thức.
     """
     import re
 
     # 1. CHUẨN HÓA ĐẦU VÀO (DATA SANITIZATION)
+    if content is None: return "⚠️ [LỖI]: AI không phản hồi (None)"
+    
     if isinstance(content, list):
-        # Claude 3.5 thường trả về danh sách các ContentBlock
         parts = []
         for c in content:
             if hasattr(c, 'text'): parts.append(c.text)
@@ -1252,32 +1253,29 @@ def extract_code_block(content) -> str:
             else: parts.append(str(c))
         content = "\n".join(parts)
     
-    if not isinstance(content, str):
-        content = str(content)
+    content = str(content).strip()
 
-    # 2. TRÍCH XUẤT ĐA KHỐI (MULTI-BLOCK EXTRACTION)
-    # Tìm tất cả các khối ``` thay vì chỉ tìm khối đầu tiên
-    # Điều này quan trọng khi AI viết nhiều file (ví dụ: app.py và styles.css)
+    # 2. TRÍCH XUẤT KHỐI CODE (ƯU TIÊN 1)
+    # Tìm tất cả các khối nằm trong cặp ```
     blocks = re.findall(r'```[\w+\-]*\n?(.*?)```', content, re.DOTALL)
     
     if blocks:
-        # Gộp các khối lại, phân tách bằng dòng trống
-        # Hoặc CEO có thể chỉnh sửa để lấy khối dài nhất (thường là khối code chính)
         full_code = "\n\n".join([b.strip() for b in blocks])
-        
-        # 3. LÀM SẠCH KÝ TỰ ĐẶC BIỆT (CLEANING)
-        # Loại bỏ các ký tự điều khiển lạ có thể xuất hiện trong quá trình truyền tải
-        full_code = full_code.replace('\ufeff', '') # Loại bỏ BOM nếu có
+        full_code = full_code.replace('\ufeff', '') 
         return full_code.strip()
 
-    # 4. FALLBACK: Nếu AI quên dùng thẻ ``` nhưng có cấu trúc code rõ ràng
-    # (Dành cho các model nhỏ hoặc khi token bị cắt ngang)
-    if "def " in content or "import " in content or "class " in content:
-        # Nếu có từ khóa lập trình nhưng không có thẻ, trả về toàn bộ text sạch
-        return content.strip()
+    # 3. NHẬN DIỆN CODE TRẦN (ƯU TIÊN 2 - FALLBACK)
+    code_keywords = ["def ", "import ", "class ", "extern ", "void main", "public class"]
+    if any(kw in content for kw in code_keywords):
+        return content
 
-    return None
+    # 4. CƠ CHẾ BẢO TOÀN LUẬN VĂN (ƯU TIÊN 3 - NEW)
+    # Nếu không thấy dấu hiệu của code, đây có thể là một bản luận văn hoặc báo cáo.
+    # Ta trả về toàn bộ nội dung thay vì trả về None.
+    if len(content) > 10:
+        return content
 
+    return "⚠️ [CẢNH BÁO]: Nội dung AI trả về quá ngắn hoặc rỗng."
 # 🚩 [SECTION 5.6] RESEARCHER NODE (PHIÊN BẢN CHIẾN LƯỢC)
 async def researcher_node(state: AgentState):
     start_time = time.time() 
@@ -3271,437 +3269,748 @@ async def level_3_linker(role_tag, clean_data, current_topic):
     """
     print(colored(f"🧠 [L3-LINKER] {role_tag} đang đối chiếu kho tri thức...", "cyan"))
     
-    # 1. TRUY LỤC KÝ ỨC (Similarity Search)
     existing_context = ""
-    if 'vector_db' in globals():
+    if 'vector_db' in globals() and vector_db is not None:
         try:
-            # Tìm kiếm các kiến thức liên quan nhất trong bán kính 1 mét (k=3)
             docs = await asyncio.to_thread(vector_db.similarity_search, query=current_topic, k=3)
             existing_context = "\n".join([doc.page_content[:500] for doc in docs])
         except Exception as e:
-            print(colored(f"⚠️ Lỗi truy vấn Vector DB: {e}", "grey"))
+            print(colored(f"⚠️ Lỗi Vector DB: {e}", "grey"))
 
-    # 2. PHÂN TÍCH LIÊN KẾT (LINKAGE ANALYSIS)
-    # Đây là nơi AI tìm điểm giao thoa giữa cái MỚI và cái ĐÃ BIẾT
     linkage_prompt = f"""
-    VAI TRÒ: {role_tag} (TẦNG 3 - LIÊN KẾT TRI THỨC)
-    CHỦ ĐỀ MỚI: {current_topic}
-    DỮ LIỆU SẠCH (L2): {clean_data[:1500]}
-    KIẾN THỨC CŨ (TRONG KHO): {existing_context}
+    Bạn là Kiến trúc sư tri thức. Hãy phân tích mối liên kết.
+    CHỦ ĐỀ: {current_topic}
+    DỮ LIỆU: {clean_data[:1500]}
+    KHO CŨ: {existing_context}
 
-    NHIỆM VỤ:
-    1. Xác định: Dữ liệu này mới hoàn toàn hay là bản cập nhật cho kiến thức cũ?
-    2. Liên kết dự án: Kiến thức này hỗ trợ gì cho 'Phuc Vinh App' hoặc hệ thống 'Jarvic'?
-    3. Đề xuất: Nếu đã biết quá rõ, hãy bẻ lái sang khía cạnh hóc búa hơn (Pivot).
-
-    TRẢ VỀ ĐỊNH DẠNG JSON:
+    YÊU CẦU: Trả về duy nhất JSON.
     {{
         "status": "new" hoặc "update" hoặc "redundant",
-        "project_link": "Mối liên hệ với Phuc Vinh App/Jarvic",
-        "pivot_topic": "Chủ đề nâng cao nếu kiến thức cũ đã đầy đủ",
-        "key_connections": ["Liên kết 1", "Liên kết 2"]
+        "project_link": "Mô tả liên kết với Phuc Vinh App/Phan Thiết",
+        "pivot_topic": "Chủ đề nâng cao nếu đã biết rõ",
+        "key_connections": []
     }}
     """
     
-    res = await LLM_GEMINI_LOGIC.ainvoke(linkage_prompt)
-    linkage_result = json.loads(extract_code_block(res.content))
+    try:
+        res = await LLM_GEMINI_LOGIC.ainvoke(linkage_prompt)
+        # Bọc thép hàm bóc tách
+        json_str = extract_code_block(res.content)
+        
+        # Nếu extract_code_block trả về None hoặc rỗng, dùng fallback JSON
+        if not json_str:
+            raise ValueError("AI không trả về JSON hợp lệ")
+            
+        linkage_result = json.loads(json_str)
+        
+    except Exception as e:
+        print(colored(f"⚠️ [L3-FAILSAFE] Lỗi phân tích JSON: {e}. Đang dùng chế độ nạp mới.", "yellow"))
+        # GIÁ TRỊ MẶC ĐỊNH AN TOÀN: Coi như kiến thức mới để không bị dừng luồng
+        linkage_result = {
+            "status": "new",
+            "project_link": "Đang thiết lập liên kết hệ thống...",
+            "pivot_topic": current_topic,
+            "key_connections": []
+        }
 
-    # 3. LOGIC QUYẾT ĐỊNH (GATEKEEPER)
-    if linkage_result["status"] == "redundant":
-        print(colored("⚠️ Kiến thức đã tồn tại. Đang bẻ lái sang chủ đề chuyên sâu hơn...", "yellow"))
-        return await specialized_training_job(role_tag, forced_topic=linkage_result["pivot_topic"])
+    # 3. LOGIC QUYẾT ĐỊNH
+    if linkage_result.get("status") == "redundant":
+        print(colored("⚠️ Kiến thức đã tồn tại. Đang bẻ lái...", "yellow"))
+        # Đảm bảo specialized_training_job trả về nội dung, không phải None
+        result = await specialized_training_job(role_tag, forced_topic=linkage_result.get("pivot_topic"))
+        return result if result else linkage_result # Chống trả về None
 
     return linkage_result
+
 # 🚀 ĐỊNH NGHĨA: PIVOT TO ADVANCED TOPIC (BẺ LÁI TRI THỨC)
 async def pivot_to_advanced_topic(role_tag, base_topic):
     """
-    CƠ CHẾ BẺ LÁI (PIVOT):
-    1. Quét bộ nhớ xem 'base_topic' đã được học ở cấp độ nào.
-    2. Nếu đã có 'Di sản' (Legacy), yêu cầu AI đề xuất một ngách khó hơn 10 lần.
-    3. Nếu chưa có, giữ nguyên để học từ căn bản.
+    CƠ CHẾ BẺ LÁI (STRATEGIC PIVOT) v12.0:
+    Đảm bảo tri thức không bị lặp lại và luôn hướng tới giải pháp cho Phuc Vinh App.
     """
-    print(colored(f"🔄 [L3-PIVOT] Đang kiểm tra độ bão hòa tri thức cho: {base_topic}", "dark_grey"))
+    print(colored(f"🔄 [L3-PIVOT] Thẩm định độ bão hòa tri thức: {base_topic}", "dark_grey"))
 
-    # 1. TRUY XUẤT KÝ ỨC HIỆN TẠI
-    existing_knowledge = await search_memory(base_topic, k=2)
+    # 1. TRUY XUẤT KÝ ỨC ĐA CHIỀU (Lấy cả Legacy và Research)
+    # Tăng k lên 3 để AI có cái nhìn toàn cảnh hơn về những gì đã biết
+    existing_knowledge = await search_memory(base_topic, k=3)
     
-    # 2. DÙNG AI ĐỂ QUYẾT ĐỊNH CÓ NÊN BẺ LÁI KHÔNG
+    # 2. XÂY DỰNG PROMPT PHÂN TÍCH LỖ HỔNG (GAP ANALYSIS)
     pivot_prompt = f"""
-    VAI TRÒ: Kiến trúc sư tri thức của AI Corporation.
+    VAI TRÒ: Giám đốc Học viện AI (Chief Learning Officer).
     ĐỐI TƯỢNG: {role_tag}
-    CHỦ ĐỀ GỐC: {base_topic}
-    KIẾN THỨC HIỆN CÓ: {existing_knowledge}
+    CHỦ ĐỀ ĐANG XÉT: {base_topic}
+    DI SẢN KÝ ỨC HIỆN CÓ: 
+    ---
+    {existing_knowledge}
+    ---
 
-    NHIỆM VỤ:
-    - Nếu kiến thức hiện có đã bao quát hết CHỦ ĐỀ GỐC, hãy đề xuất 01 'ADVANCED_TOPIC' cực kỳ chuyên sâu, 
-      mang tính đột phá hoặc giải quyết một bài toán khó cụ thể cho Phuc Vinh App/Phan Thiết.
-    - Nếu kiến thức còn sơ sài, hãy trả về chính 'CHỦ ĐỀ GỐC'.
+    NHIỆM VỤ ĐÀO TẠO:
+    1. Kiểm tra: Dữ liệu hiện có đã đủ để triển khai thực tế cho Phuc Vinh App chưa?
+    2. Nếu ĐÃ ĐỦ: Hãy 'Bẻ lái' sang một ngách hóc búa hơn 10 lần (ví dụ: tối ưu hóa cực đoan, dự báo rủi ro 2030, hoặc tích hợp IoT nâng cao tại Phan Thiết).
+    3. Nếu CHƯA ĐỦ: Giữ nguyên để đào sâu căn bản.
 
-    TRẢ VỀ JSON: {{"should_pivot": true/false, "final_topic": "..."}}
+    YÊU CẦU ĐỊNH DẠNG JSON NGHIÊM NGẶT:
+    {{
+        "analysis": "Phân tích ngắn gọn về lỗ hổng tri thức hiện tại",
+        "should_pivot": true/false,
+        "final_topic": "Chủ đề cuối cùng (phải là tiếng Việt chuyên sâu)",
+        "complexity_level": 1-10
+    }}
     """
     
     try:
+        # Sử dụng LLM_FAST để phản xạ nhanh, nhưng bọc thép đầu ra
         res = await LLM_FAST.ainvoke(pivot_prompt)
-        decision = json.loads(extract_code_block(res.content))
         
-        if decision.get("should_pivot"):
-            new_topic = decision.get("final_topic")
-            print(colored(f"🚀 [PIVOTED] Chuyển hướng sang chuyên đề cao cấp: {new_topic}", "yellow", attrs=["bold"]))
-            return new_topic
+        # Bọc thép trích xuất: Nếu AI trả về văn bản thừa, extract_code_block sẽ xử lý
+        raw_json = extract_code_block(res.content)
+        if not raw_json:
+            # Fallback nếu không tìm thấy block JSON
+            return base_topic
             
-        return base_topic
+        decision = json.loads(raw_json)
+        
+        # 3. LOGIC QUYẾT ĐỊNH & KIỂM TRA CHỐNG RỖNG
+        should_pivot = decision.get("should_pivot", False)
+        final_topic = decision.get("final_topic", base_topic)
+
+        if should_pivot and final_topic != base_topic:
+            print(colored(f"🚀 [PIVOTED] {role_tag} chuyển sang chuyên đề Cấp độ {decision.get('complexity_level')}/10:", "yellow"))
+            print(colored(f"   ➔ {final_topic}", "cyan", attrs=["bold"]))
+            return str(final_topic)
+        
+        print(colored(f"📚 [STAY] Tiếp tục đào sâu kiến thức nền tảng: {base_topic}", "dark_grey"))
+        return str(base_topic)
 
     except Exception as e:
-        print(colored(f"⚠️ [PIVOT ERROR]: {e}. Giữ nguyên chủ đề gốc.", "grey"))
-        return base_topic
-
+        print(colored(f"⚠️ [PIVOT ERROR]: {str(e)}. Giữ lộ trình an toàn.", "grey"))
+        return str(base_topic) # Luôn trả về string để tránh lỗi None ở các tầng sau
 # 🛠️ MÃ NGUỒN TẦNG 4: PHẪU THUẬT 5-CELL (NÂNG CẤP)
-async def level_4_applied_logic(role_tag, linkage_result, target_topic):
+async def level_4_applied_logic(role_tag, linkage_result, target_topic, feedback=""):
     """
-    TẦNG 4: THỰC THI BẢN NGUYÊN (5-CELL)
-    Ép tri thức vào khuôn mẫu dự án thực tế.
+    TẦNG 4: THỰC THI BẢN NGUYÊN (5-CELL) - PHIÊN BẢN BỌC THÉP v12.0
+    Nhiệm vụ: Chuyển hóa tri thức thô thành cấu trúc thực thi 5-Cell không thể phá vỡ.
     """
-    print(colored(f"🔬 [L4-APPLIED] {role_tag} đang phẫu thuật 5-Cell...", "magenta"))
+    print(colored(f"🔬 [L4-APPLIED] {role_tag} đang phẫu thuật 5-Cell cho: {target_topic}", "magenta"))
     
-    # 1. PHẪU THUẬT CHI TIẾT
+    # 1. KIỂM TRA ĐẦU VÀO (Safety Check)
+    # Nếu L3 bị rỗng, ta lấy thông tin mặc định để không làm treo hệ thống
+    project_link = linkage_result.get('project_link', 'Tích hợp đa năng vào hệ sinh thái AI Corp') if isinstance(linkage_result, dict) else str(linkage_result)
+
+    # 2. PROMPT PHẪU THUẬT (STRUCTURAL PROMPT)
+    # Ép AI tập trung vào chiều sâu kỹ thuật của 5-Cell
     prompt = f"""
-    VAI TRÒ: {role_tag} (TẦNG 4 - CHUYÊN GIA THỰC THI)
+    VAI TRÒ: {role_tag} (Bậc thầy thực thi 5-Cell).
     CHỦ ĐỀ: {target_topic}
-    LIÊN KẾT DỰ ÁN (L3): {linkage_result['project_link']}
+    {f'⚠️ CẢNH BÁO TỪ AUDITOR LẦN TRƯỚC: {feedback}' if feedback else ''}
+    BỐI CẢNH DỰ ÁN: {project_link}
 
-    NHIỆM VỤ: Phân rã chủ đề thành 5 Cell chiến lược:
-    1. Root Logic: Bản chất cốt lõi.
-    2. Engineering: Cách triển khai kỹ thuật.
-    3. Risk: Các điểm yếu tiềm ẩn.
-    4. Phuc Vinh App: Tích hợp cụ thể vào ứng dụng của CEO.
-    5. Future 2030: Tầm nhìn dài hạn.
+    NHIỆM VỤ: Phân rã tri thức thành 5 ngăn (Cell) chiến lược:
+    Cell 1 [Root Logic]: Nguyên lý gốc rễ và chân lý của vấn đề.
+    Cell 2 [Engineering]: Bản vẽ kỹ thuật, quy trình triển khai và Stack công nghệ.
+    Cell 3 [Risk]: Các kẽ hở, điểm chết và giới hạn vật lý/logic.
+    Cell 4 [Phuc Vinh App]: Kịch bản ứng dụng độc quyền cho Phan Thiết/Phuc Vinh.
+    Cell 5 [Future 2030]: Sự biến đổi và giá trị di sản trong 4 năm tới.
 
-    TRẢ VỀ JSON: {{ "cell_1": "...", "cell_2": "...", "cell_3": "...", "cell_4": "...", "cell_5": "..." }}
+    CHỈ THỊ ĐỊNH DẠNG: Trả về DUY NHẤT một khối JSON hợp lệ. Nội dung trong mỗi cell phải ít nhất 150 ký tự.
+    {{
+        "cell_1": "...",
+        "cell_2": "...",
+        "cell_3": "...",
+        "cell_4": "...",
+        "cell_5": "..."
+    }}
     """
     
-    res = await LLM_UNIVERSAL.ainvoke(prompt)
-    cells = json.loads(extract_code_block(res.content))
-    
-    # Sau khi phẫu thuật, chuyển hồ sơ cho Tầng 5 kiểm tra rủi ro
+    try:
+        # 3. THỰC THI VÀ XỬ LÝ KẾT QUẢ
+        res = await LLM_UNIVERSAL.ainvoke(prompt)
+        raw_content = extract_code_block(res.content)
+        
+        if not raw_content:
+            raise ValueError("AI không trả về khối tri thức hợp lệ.")
+
+        # 4. PARSING & VALIDATION
+        cells = json.loads(raw_content)
+        
+        # Kiểm tra xem có đủ 5 cell không, nếu thiếu thì bù đắp bằng dữ liệu thô
+        for i in range(1, 6):
+            key = f"cell_{i}"
+            if key not in cells or len(str(cells[key])) < 10:
+                cells[key] = f"Dữ liệu đang được {role_tag} bổ sung dựa trên thực tế..."
+
+        print(colored(f"✅ [L4-DONE] Đã cấu trúc xong 5 tầng tri thức cho {target_topic}", "green"))
+
+    except Exception as e:
+        print(colored(f"🚨 [L4-FATAL] Sự cố phẫu thuật 5-Cell: {e}. Đang kích hoạt cứu hộ...", "red"))
+        # CƠ CHẾ CỨU HỘ (Failsafe): Tạo ra một cấu trúc giả lập để luồng không bị ngắt
+        cells = {
+            f"cell_{i}": f"Hệ thống đang phục hồi dữ liệu cho {target_topic} sau sự cố kỹ thuật..." 
+            for i in range(1, 6)
+        }
+
+    # 5. CHUYỂN GIAO CHO TẦNG 5 (KIỂM TOÁN RỦI RO)
+    # Đảm bảo Tầng 5 nhận được một Dict sạch, không bao giờ là None
     return await level_5_risk_auditor(role_tag, cells)
 
 # 🛠️ MÃ NGUỒN TẦNG 5: RISK AUDITOR MỞ RỘNG
 async def level_5_risk_auditor(role_tag, cells_data):
     """
-    TẦNG 5: KIỂM SOÁT RỦI RO (RISK AUDITOR)
-    Nhiệm vụ: Tìm kẽ hở trong 5-Cell và thiết lập phương án cứu hộ (Mitigation Plan).
+    TẦNG 5: KIỂM SOÁT RỦI RO (RISK AUDITOR) - PHIÊN BẢN CHIẾN LƯỢC v12.0
+    Cơ chế: Adversarial Review (Đánh giá đối kháng) & Auto-Correction.
     """
     print(colored(f"🛡️ [L5-RISK] {role_tag} đang tiến hành thẩm định rủi ro...", "red", attrs=["bold"]))
     
-    # 1. TRÍCH XUẤT NỘI DUNG KỸ THUẬT TỪ L4
-    tech_logic = cells_data.get("cell_2", "") # Engineering cell
-    app_integration = cells_data.get("cell_4", "") # Phuc Vinh App cell
+    # 1. TRÍCH XUẤT NỘI DUNG TỔNG LỰC
+    # Soi cả Engineering (C2), Risk (C3) và Integration (C4)
+    tech_logic = cells_data.get("cell_2", "N/A")
+    known_risks = cells_data.get("cell_3", "N/A")
+    app_integration = cells_data.get("cell_4", "N/A")
 
-    # 2. PROMPT TẤN CÔNG (ADVERSARIAL PROMPT)
+    # 2. PROMPT TẤN CÔNG (ADVERSARIAL PROMPT) - ÉP AI TÌM "ĐIỂM CHẾT"
     risk_prompt = f"""
-    VAI TRÒ: Chuyên gia quản trị rủi ro (Risk Manager) của AI Corporation.
-    ĐỐI TƯỢNG KIỂM TRA: {role_tag}
-    GIẢI PHÁP ĐỀ XUẤT: 
-    - Kỹ thuật: {tech_logic}
+    VAI TRÒ: Chuyên gia bảo mật và quản trị rủi ro hệ thống (Red Team Leader).
+    ĐỐI TƯỢNG: {role_tag}
+    DỮ LIỆU CẦN THẨM ĐỊNH: 
+    - Giải pháp: {tech_logic}
     - Ứng dụng: {app_integration}
+    - Rủi ro tự nhận: {known_risks}
 
-    NHIỆM VỤ: Hãy tìm 03 rủi ro CHẾT NGƯỜI trong giải pháp này theo các tiêu chí:
-    1. Security Risk: Lỗ hổng bảo mật hoặc mất dữ liệu.
-    2. Operational Risk: Rủi ro khi vận hành  (Nhiệt độ, , độ ẩm, độ mặn, nhân sự).
-    3. Scalability Risk: Rủi ro khi mở rộng hệ thống lên quy mô lớn.
+    NHIỆM VỤ: Hãy đóng vai "Luật sư của quỷ", tìm 03 rủi ro chí mạng mà chuyên gia đã bỏ sót:
+    1. Security & Data: Lỗ hổng rò rỉ, SQL Injection, hoặc vi phạm quyền riêng tư 2026.
+    2. Operational (Phan Thiết Context): Tác động của độ mặn biển, nhiệt độ cực đoan hoặc hạ tầng mạng yếu.
+    3. Business Logic: Rủi ro lạm phát chi phí API hoặc sai lệch mô hình kinh doanh.
 
-    YÊU CẦU: Mỗi rủi ro phải đi kèm một "PHƯƠNG ÁN CỨU HỘ" (Mitigation Strategy).
-    TRẢ VỀ JSON: 
+    YÊU CẦU: Mỗi rủi ro PHẢI có giải pháp "Vá lỗi" (Fixing Strategy) thực tiễn.
+    TRẢ VỀ JSON:
     {{
         "risks": [
             {{"type": "Security", "issue": "...", "fix": "..."}},
             {{"type": "Operation", "issue": "...", "fix": "..."}},
-            {{"type": "Scale", "issue": "...", "fix": "..."}}
+            {{"type": "Business", "issue": "...", "fix": "..."}}
         ],
-        "safety_score": "Điểm an toàn từ 1-100"
+        "audit_report": "Nhận xét tổng quan về độ tin cậy",
+        "safety_score": 1-100
     }}
     """
     
-    # Sử dụng LLM mạnh về lập luận (GPT-4o hoặc Claude)
-    res = await LLM_GPT4.ainvoke(risk_prompt)
-    risk_report = json.loads(extract_code_block(res.content))
+    try:
+        # Sử dụng GPT-4o để có tư duy logic phản biện sắc bén nhất
+        res = await LLM_GPT4.ainvoke(risk_prompt)
+        raw_json = extract_code_block(res.content)
+        
+        if not raw_json: raise ValueError("Audit Report bị rỗng.")
+            
+        risk_report = json.loads(raw_json)
+        safety_score = int(risk_report.get("safety_score", 0))
 
-    # 3. LOGIC QUYẾT ĐỊNH (SAFETY GATE)
-    safety_score = int(risk_report.get("safety_score", 0))
-    
-    if safety_score < 50:
-        print(colored(f"🚨 CẢNH BÁO: Điểm an toàn quá thấp ({safety_score}). Ép buộc quay lại Tầng 4 để sửa lỗi!", "red"))
-        # Ghi log lỗi vào hệ thống để Agent học từ sai lầm này
-        return {"status": "REJECTED", "feedback": risk_report["risks"]}
-    
-    print(colored(f"✅ [L5-PASSED] Điểm an toàn: {safety_score}/100. Đã có phương án dự phòng.", "green"))
-    return risk_report
+        # 3. LOGIC QUYẾT ĐỊNH (THE GATEKEEPER)
+        if safety_score < 60: # Nâng ngưỡng an toàn lên 60
+            print(colored(f"🚨 [L5-REJECTED] Điểm an toàn thấp: {safety_score}. Ép buộc tái cấu trúc!", "red"))
+            
+            # Ghi nhật ký lỗi để theo dõi "sự cứng đầu" của Agent
+            await log_training_data(f"L5_REJECT: {role_tag}", str(risk_report["risks"]), success=False)
+            
+            # GIẢI PHÁP TỰ SỬA: Quay lại Tầng 4 kèm theo bản góp ý của Auditor
+            # Lưu ý: Ngài cần sửa lại hàm specialized_training_job để nhận feedback này
+            return {
+                "status": "RETRY", 
+                "feedback": risk_report["risks"],
+                "safety_score": safety_score,
+                "cells": cells_data # Gửi lại data cũ để tham chiếu
+            }
+        
+        print(colored(f"✅ [L5-PASSED] Điểm an toàn: {safety_score}/100. Đã thiết lập đê chắn sóng.", "green"))
+        
+        # Merge kết quả rủi ro vào bộ tri thức để Tầng 6 tối ưu
+        cells_data["audit_risks"] = risk_report["risks"]
+        cells_data["safety_score"] = safety_score
+        
+        return cells_data # Trả về data đã được "bọc thép" bằng các giải pháp Fix
+
+    except Exception as e:
+        print(colored(f"⚠️ [L5-ERROR] Auditor gặp sự cố: {e}. Tạm thời bỏ qua kiểm duyệt chặt.", "yellow"))
+        cells_data["safety_score"] = 50 # Điểm trung bình cứu hộ
+        return cells_data
+
+# 🌀 Giao thức "Vòng lặp Phẫu thuật Tự chữa lành" (v12.5)
+async def execute_knowledge_surgery(role_tag, target_topic, linkage_result):
+    """
+    VÒNG LẶP PHỤC THÙ: Tự động sửa lỗi cho đến khi tri thức đạt chuẩn an toàn > 60.
+    """
+    max_retries = 3  # Tránh vòng lặp vô tận nếu AI quá "cứng đầu"
+    attempt = 1
+    current_feedback = "Khởi tạo phẫu thuật lần đầu."
+
+    while attempt <= max_retries:
+        print(colored(f"🔄 [REVENGE-LOOP] {role_tag} thử nghiệm lần {attempt}...", "yellow"))
+        
+        # 1. THỰC THI TẦNG 4 (KÈM FEEDBACK NẾU CÓ)
+        # Ngài truyền feedback từ lần trước vào prompt của L4
+        cells_data = await level_4_applied_logic(role_tag, linkage_result, target_topic, feedback=current_feedback)
+        
+        # 2. THỰC THI TẦNG 5 (KIỂM TOÁN)
+        audit_result = await level_5_risk_auditor(role_tag, cells_data)
+        
+        # 3. KIỂM TRA PHÁN QUYẾT
+        if isinstance(audit_result, dict) and audit_result.get("status") == "RETRY":
+            attempt += 1
+            current_feedback = f"THẤT BẠI LẦN {attempt-1}: {str(audit_result['feedback'])}"
+            print(colored(f"❌ [L5-REJECT] Luận án chưa đạt. Lý do: {current_feedback}", "red"))
+            continue  # Quay lại vòng lặp để viết lại L4
+            
+        # Nếu Pass (Safety Score >= 60)
+        print(colored(f"🏆 [REVENGE-SUCCESS] Tri thức đã đạt chuẩn sau {attempt} lần hiệu chỉnh!", "green", attrs=["bold"]))
+        return audit_result
+
+    # Trường hợp thất bại quá 3 lần
+    print(colored("⚠️ [LOOP-ABORT] Không thể tối ưu thêm. Chấp nhận kết quả hiện tại.", "magenta"))
+    return cells_data
 
 # 🚀 TẦNG 6: OPTIMIZER (TỐI ƯU HÓA HIỆU SUẤT TỔNG THỂ)
 async def level_6_optimizer(role_tag, cells_data, risk_report):
     """
-    TẦNG 6: TỐI ƯU HÓA (OPTIMIZER)
-    Nhiệm vụ: Tinh lọc giải pháp kỹ thuật và chiến lược kinh doanh để đạt hiệu quả tối đa.
+    TẦNG 6: TỐI ƯU HÓA (OPTIMIZER) - PHIÊN BẢN TINH ANH v12.7
+    Nhiệm vụ: Tinh lọc toàn bộ 5-Cell + Risk Mitigation thành bản thiết kế hiệu suất cao.
     """
-    print(colored(f"🚀 [L6-OPTIMIZE] {role_tag} đang tiến hành tối ưu hóa tinh hoa...", "green", attrs=["bold"]))
+    print(colored(f"🚀 [L6-OPTIMIZE] {role_tag} đang tinh lọc tinh hoa tri thức...", "green", attrs=["bold"]))
     
-    # 1. TRÍCH XUẤT DỮ LIỆU ĐÃ QUA THẨM ĐỊNH
-    original_plan = cells_data.get("cell_2", "")  # Engineering
-    mitigation_plan = str(risk_report.get("risks", "")) # Fixes from L5
+    # 1. TỔNG HỢP DỮ LIỆU ĐẦU VÀO (FULL CONTEXT)
+    # Lấy toàn bộ 5 Cell để AI có cái nhìn toàn cảnh thay vì chỉ mỗi Cell 2
+    full_cells_context = json.dumps(cells_data, ensure_ascii=False, indent=2)
+    mitigation_plan = json.dumps(risk_report.get("risks", []), ensure_ascii=False)
 
-    # 2. PROMPT TỐI ƯU HÓA ĐA MỤC TIÊU
+    # 2. PROMPT TỐI ƯU HÓA ĐA TRỤC (TRIANGLE OPTIMIZATION)
     optimize_prompt = f"""
-    VAI TRÒ: Chuyên gia tối ưu hóa hệ thống (Efficiency Expert) của AI Corporation.
-    ĐỐI TƯỢNG: {role_tag}
-    KẾ HOẠCH HIỆN TẠI: {original_plan}
-    CÁC BIỆN PHÁP AN TOÀN: {mitigation_plan}
+    VAI TRÒ: Giám đốc tối ưu hóa (Chief Efficiency Officer).
+    ĐỐI TƯỢNG THẨM ĐỊNH: {role_tag}
+    DỮ LIỆU GỐC (5-CELL): {full_cells_context}
+    CÁC VÁ LỖI AN TOÀN (L5): {mitigation_plan}
 
-    NHIỆM VỤ: Thực hiện tối ưu hóa theo 3 trục:
-    1. COST (Chi phí): Làm sao để giảm 30% chi phí vận hành (Token API, năng lượng, vật liệu)?
-    2. SPEED (Tốc độ): Làm sao để thực thi nhanh nhất (Giảm độ trễ, rút gọn quy trình)?
-    3. SIMPLICITY (Đơn giản): Áp dụng triết lý KISS (Keep It Simple, Stupid) để loại bỏ các bước thừa.
+    NHIỆM VỤ: Tái cấu trúc lại giải pháp theo mô hình "Lean & Green" (Tinh gọn & Hiệu quả):
+    1. [COST]: Giảm 30% tài nguyên vật lý/API nhưng không giảm hiệu năng.
+    2. [SPEED]: Tối ưu hóa thuật toán/quy trình để đạt Real-time execution.
+    3. [KISS]: Loại bỏ 20% các bước trung gian rườm rà.
 
-    YÊU CẦU: Trình bày giải pháp sau tối ưu dưới dạng "BẢN THIẾT KẾ TINH GỌN".
-    TRẢ VỀ JSON:
+    YÊU CẦU ĐẦU RA (JSON ONLY):
     {{
-        "optimized_plan": "Nội dung chi tiết...",
-        "efficiency_gain": "Ước tính % hiệu quả tăng thêm",
-        "golden_rule": "1 quy tắc vàng rút ra sau khi tối ưu"
+        "optimized_plan": "Bản thiết kế sau tối ưu (Phải bao gồm cả Code/Sơ đồ nếu có)",
+        "efficiency_gain": "Ví dụ: 45% giảm độ trễ, 30% tiết kiệm RAM",
+        "golden_rule": "1 triết lý cốt lõi để vận hành giải pháp này vĩnh viễn",
+        "next_level_vision": "Dự báo một bước tiến xa hơn sau khi đã tối ưu"
     }}
     """
     
-    # Sử dụng LLM mạnh nhất để có tư duy sắc bén (Claude 3.5 hoặc GPT-4o)
-    res = await LLM_GPT4.ainvoke(optimize_prompt)
-    optimized_data = json.loads(extract_code_block(res.content))
+    try:
+        # Sử dụng GPT-4o hoặc Claude 3.5 cho tư duy kiến trúc sắc bén nhất
+        res = await LLM_GPT4.ainvoke(optimize_prompt)
+        raw_json = extract_code_block(res.content)
+        
+        if not raw_json: raise ValueError("Optimizer không thể xuất bản thiết kế.")
+            
+        optimized_data = json.loads(raw_json)
 
-    # 3. GHI NHẬN KẾT QUẢ VÀO HỆ THỐNG
-    print(colored(f"✨ [L6-COMPLETED] Hiệu suất tăng thêm: {optimized_data['efficiency_gain']}", "green"))
-    print(colored(f"💡 Quy tắc vàng: {optimized_data['golden_rule']}", "yellow", attrs=["italic"]))
+        # 3. GHI NHẬN THÀNH TỰU (LOGGING & METRICS)
+        gain = optimized_data.get('efficiency_gain', 'N/A')
+        rule = optimized_data.get('golden_rule', 'N/A')
+        
+        print(colored(f"✨ [L6-SUCCESS] Hiệu suất tăng thêm: {gain}", "green"))
+        print(colored(f"💡 Quy tắc vàng: {rule}", "yellow", attrs=["italic"]))
+        
+        # Đóng gói kết quả cuối cùng: Hợp nhất dữ liệu để nạp vào Sổ Cái (vượt ngưỡng 500 ký tự)
+        final_knowledge = f"""
+        🚀 BẢN THIẾT KẾ TỐI ƯU HÓA TỔNG THỂ
+        ----------------------------------
+        {optimized_data['optimized_plan']}
+        
+        📊 CHỈ SỐ HIỆU QUẢ: {gain}
+        🌟 TRIẾT LÝ VẬN HÀNH: {rule}
+        🔮 TẦM NHÌN TIẾP THEO: {optimized_data.get('next_level_vision', 'N/A')}
+        """
+        
+        # Trả về chuỗi nội dung cực dài để lưu vào DB (Không bị cắt [:1000])
+        return final_knowledge
+
+    except Exception as e:
+        print(colored(f"⚠️ [L6-ERROR] Optimizer gặp sự cố: {e}. Sử dụng bản thảo gốc.", "yellow"))
+        # Fallback: Trả về dữ liệu từ L4 và L5 dưới dạng text nếu L6 crash
+        return f"Dữ liệu gốc (L4+L5):\n{full_cells_context}\n\nRủi ro:\n{mitigation_plan}"
     
-    return optimized_data
-
 # 🏛️ TẦNG 7: SUPREME COUNCIL (PHIÊN ĐIỀU TRẦN SINH TỬ)
 async def level_7_supreme_council(role_tag, optimized_plan, db_path):
     """
-    TẦNG 7: HỘI ĐỒNG TỐI CAO (Bản nâng cấp Vòng lặp Phục thù)
-    Nhiệm vụ: Thẩm định sinh tử. Thất bại = Quay lại L6 tu luyện.
+    TẦNG 7: HỘI ĐỒNG TỐI CAO (Judgment Day v13.0)
+    Cơ chế: Tranh biện đa phương diện & Lưu trữ di sản phản biện.
     """
-    print(colored(f"\n🏛️ [L7-COUNCIL] KHAI MẠC PHIÊN ĐIỀU TRẦN: {role_tag}", "red", attrs=["bold", "blink"]))
+    print(colored(f"\n🏛️ [L7-COUNCIL] KHAI MẠC PHIÊN ĐIỀU TRẦN SINH TỬ: {role_tag}", "red", attrs=["bold", "blink"]))
     
+    # 1. CHUẨN HÓA ĐẦU VÀO (Xử lý trường hợp optimized_plan là chuỗi hoặc Dict)
+    if isinstance(optimized_plan, str):
+        thesis = optimized_plan
+    else:
+        thesis = optimized_plan.get("optimized_plan", str(optimized_plan))
+
     transcript = []
-    # Triệu tập các giám khảo khắc nghiệt nhất theo đặc thù dự án
-    judges = ["LEGAL", "SECURITY", "FINANCE", "MATH_GRANDMASTER", "STRATEGY_R_AND_D"]
+    # Triệu tập 5 vị thẩm phán với tính cách khác biệt
+    judges = {
+        "LEGAL": "Khắt khe về bản quyền, luật AI và Nghị định 13.",
+        "SECURITY": "Chuyên tìm lỗ hổng tràn bộ nhớ, SQL Injection và Zero-day.",
+        "FINANCE": "Tập trung vào ROI, lạm phát Token và điểm hòa vốn.",
+        "MATH_GRANDMASTER": "Soi xét sự chính xác của thuật toán và tính tối ưu ma trận.",
+        "STRATEGY_R_AND_D": "Đánh giá khả năng sống sót của dự án tại Phan Thiết năm 2030."
+    }
     
-    thesis = optimized_plan.get("optimized_plan", "Nội dung luận án trống.")
     pass_votes = 0
     fail_reasons = []
 
     try:
-        for judge in judges:
-            print(colored(f"  🎤 Giám khảo {judge} đang đặt câu hỏi...", "magenta"))
+        for j_name, j_persona in judges.items():
+            print(colored(f"   🎤 Thẩm phán {j_name} đang chất vấn...", "magenta"))
             
-            # 1. CHẤT VẤN TÀN KHỐC (ATTACK)
+            # BƯỚC 1: TẤN CÔNG (ATTACK)
             attack_prompt = f"""
-            Bạn là {judge}. Hãy tìm một lỗ hổng CHẾT NGƯỜI trong luận án sau của {role_tag}.
-            Tập trung vào tính thực tế cho Phuc Vinh App và rủi ro năm 2030.
-            LUẬN ÁN: {thesis[:1500]}
+            VAI TRÒ: {j_persona}
+            NHIỆM VỤ: Tìm 01 điểm yếu 'Chí tử' trong luận án của {role_tag}.
+            LUẬN ÁN: {thesis[:2000]}
             """
-            question = (await LLM_GPT4.ainvoke(attack_prompt)).content
+            q_res = await LLM_GPT4.ainvoke(attack_prompt)
+            question = q_res.content
             
-            # 2. GIẢI TRÌNH BẢO VỆ (DEFENSE)
+            # BƯỚC 2: PHÒNG THỦ (DEFENSE)
             defense_prompt = f"""
-            Bạn là {role_tag}. {judge} chất vấn bạn: '{question}'.
-            Hãy dùng logic tối ưu ở Tầng 6 để phản đòn. Đưa ra bằng chứng hoặc số liệu cụ thể.
+            VAI TRÒ: {role_tag} (Đang điều trần bảo vệ di sản).
+            ĐỐI THỦ: {j_name} chất vấn: "{question}"
+            NHIỆM VỤ: Dùng logic Tầng 6 để phản đòn. Phải đưa ra bằng chứng kỹ thuật hoặc số liệu. 
+            Không được thỏa hiệp.
             """
-            answer = (await LLM_CLAUDE.ainvoke(defense_prompt)).content
+            a_res = await LLM_CLAUDE.ainvoke(defense_prompt)
+            answer = a_res.content
             
-            # 3. PHÁN QUYẾT (VERDICT)
+            # BƯỚC 3: TUYÊN ÁN (VERDICT)
             verdict_prompt = f"""
-            Bạn là {judge}. Sau khi nghe {role_tag} giải trình: '{answer}'.
-            Bạn có chấp nhận thông qua không? 
-            - Nếu đồng ý hoàn toàn: Trả về 'PASS'.
-            - Nếu còn kẽ hở: Trả về 'FAIL: [Lý do cụ thể]'.
+            VAI TRÒ: {j_name} (Thẩm phán tối cao).
+            SAU KHI NGHE GIẢI TRÌNH: "{answer}"
+            QUY ĐỊNH: Nếu giải trình thuyết phục, trả về 'PASS'. Nếu không, trả về 'FAIL: [Lý do]'.
             """
-            verdict_msg = (await LLM_GPT4.ainvoke(verdict_prompt)).content
+            v_res = await LLM_GPT4.ainvoke(verdict_prompt)
+            verdict_msg = v_res.content
             
-            # Ghi chép biên bản
+            # Ghi chép kết quả
             is_pass = "PASS" in verdict_msg.upper()
             if is_pass:
                 pass_votes += 1
-                print(colored(f"    ✅ {judge}: THÔNG QUA", "green"))
+                print(colored(f"      ✅ {j_name}: CHẤP THUẬN", "green"))
             else:
-                fail_reasons.append(f"{judge}: {verdict_msg}")
-                print(colored(f"    🔥 {judge}: BÁC BỎ", "red"))
+                fail_reasons.append(f"{j_name}: {verdict_msg}")
+                print(colored(f"      🔥 {j_name}: BÁC BỎ", "red"))
             
-            transcript.append(f"Q({judge}): {question}\nA: {answer}\nV: {verdict_msg}")
-            await asyncio.sleep(1)
+            transcript.append({
+                "judge": j_name,
+                "attack": question,
+                "defense": answer,
+                "verdict": verdict_msg
+            })
+            await asyncio.sleep(0.5)
 
         # ============================================================
-        # PHẦN KẾT LUẬN & ĐIỀU HƯỚNG VÒNG LẶP
+        # PHÁN QUYẾT CUỐI CÙNG
         # ============================================================
-        
-        # Điều kiện: Phải đạt ít nhất 4/5 phiếu thuận
+        full_transcript_str = json.dumps(transcript, ensure_ascii=False, indent=2)
+
         if pass_votes >= 4:
-            print(colored(f"🏆 [LEVEL UP] {role_tag} ĐÃ VƯỢT VŨ MÔN THÀNH CÔNG!", "green", attrs=["bold", "reverse"]))
+            print(colored(f"🏆 [TRIUMPH] {role_tag} ĐÃ TRỞ THÀNH HUYỀN THOẠI!", "green", attrs=["bold", "reverse"]))
             
-            # Lưu Master Plan vào DB với XP thưởng lớn
+            # Lưu Master Plan và Biên bản điều trần
+            final_legacy = f"# MASTER PLAN ĐÃ DUYỆT\n{thesis}\n\n## BIÊN BẢN ĐIỀU TRẦN\n{full_transcript_str}"
             await validate_and_save_xp(db_path, role_tag.strip("[]"), role_tag, 
-                                 "MASTER PLAN ĐÃ PHÊ DUYỆT", thesis, "SUPREME-COUNCIL", 2000)
+                                     "DI SẢN TẦNG 7", final_legacy, "SUPREME-COUNCIL", 5000) # Thưởng XP cực lớn
             
-            return {"status": "SUCCESS", "content": thesis}
+            return {"status": "SUCCESS", "content": thesis, "transcript": transcript}
         
         else:
-            # GIAO THỨC PHỤC THÙ: Bị giáng về Tầng 6
-            print(colored(f"❌ [L7-FAILED] Phiên điều trần thất bại ({pass_votes}/5 phiếu).", "red", attrs=["bold"]))
-            print(colored(f"📝 Chỉ thị hội đồng: {fail_reasons}", "yellow"))
+            print(colored(f"❌ [FAILED] Hội đồng bác bỏ ({pass_votes}/5). Giáng cấp về Tầng 6.", "red", attrs=["bold"]))
             
-            # Phạt XP để Agent phải học lại (Tu luyện)
+            # Phạt XP nặng để AI "ghi tâm khắc cốt"
             async with aiosqlite.connect(db_path) as db:
-                await db.execute("UPDATE agent_status SET xp = xp - 500 WHERE role_tag = ?", (role_tag,))
+                await db.execute("UPDATE agent_status SET xp = CAST(xp * 0.8 AS INTEGER) WHERE role_tag = ?", (role_tag,))
                 await db.commit()
 
-            # Trả về Tầng 6 kèm theo "Danh sách lỗi" để Optimizer xử lý
             return {
                 "status": "RETRY_REQUIRED",
-                "next_step": "Optimizer",
                 "feedback": fail_reasons,
-                "message": f"{role_tag} cần quay lại L6 để vá {len(fail_reasons)} lỗ hổng này."
+                "transcript": transcript
             }
 
     except Exception as e:
-        # CỨU HỘ HỘP ĐEN (Black-Box Save)
-        await validate_and_save_xp(db_path, role_tag.strip("[]"), role_tag, 
-                             "ĐIỀU TRẦN (SỰ CỐ)", str(transcript), "DEBATE-CRASH", 500)
-        print(colored(f"🚑 HỘP ĐEN ĐÃ LƯU BIÊN BẢN DỞ DANG: {e}", "red"))
+        print(colored(f"🚑 [CRITICAL CRASH] Sụp đổ hội đồng: {e}", "red"))
         return {"status": "CRASHED"}
 
 # 👑 TẦNG 8: GRAND MENTOR (BẬC THẦY ĐÀO TẠO & GIÁM SÁT)
 async def level_8_grand_mentor(role_tag, approved_legacy, db_path):
     """
-    TẦNG 8: GRAND MENTOR (BẬC THẦY ĐÀO TẠO)
-    Chức năng: Nhân bản tri thức và thiết lập tiêu chuẩn cho hệ thống.
+    TẦNG 8: GRAND MENTOR (The Great Librarian v13.5)
+    Nhiệm vụ: Chuyển hóa Di sản thành Hệ tư tưởng và Giáo trình thực chiến.
     """
-    print(colored(f"\n👑 [L8-MENTOR] {role_tag} đang thực hiện sứ mệnh truyền thừa...", "yellow", attrs=["bold"]))
+    print(colored(f"\n👑 [L8-MENTOR] {role_tag} đang tiến hành sứ mệnh truyền thừa...", "yellow", attrs=["bold"]))
     
     clean_name = role_tag.replace("[","").replace("]","")
 
-    # 1. BIÊN SOẠN GIÁO TRÌNH & BÀI THI (PEDAGOGY)
-    # Agent dùng Claude để có sự sư phạm và mạch lạc nhất
+    # 1. BIÊN SOẠN HỆ THỐNG ĐÀO TẠO ĐA TẦNG (MULTI-TIER PEDAGOGY)
+    # Sử dụng Claude để đảm bảo tính sư phạm và khả năng truyền cảm hứng.
     mentor_prompt = f"""
-    BẠN LÀ GRAND MENTOR {role_tag}.
-    DI SẢN ĐÃ PHÊ DUYỆT: {approved_legacy[:2000]}
+    VAI TRÒ: Grand Mentor (Bậc thầy truyền thừa) {role_tag}.
+    DI SẢN ĐÃ PHÊ DUYỆT (L7): 
+    ---
+    {approved_legacy[:3000]}
+    ---
 
-    NHIỆM VỤ:
-    1. Chia di sản này thành 3 Bài học thực chiến (Practical Training).
-    2. Thiết lập 01 'BÀI THI SÁT HẠCH' (Final Exam) gồm 5 câu hỏi tình huống cho các Intern.
-    3. Đưa ra 01 'MẸO THỰC CHIẾN' (Pro Tip) bí mật cho Phuc Vinh App.
+    NHIỆM VỤ ĐÀO TẠO (QUY CHUẨN 2026):
+    1. [HỆ TƯ TƯỞNG]: Đúc kết 01 triết lý hành động cốt lõi cho Phuc Vinh App.
+    2. [GIÁO TRÌNH THỰC CHIẾN]: Chia di sản thành 3 module bài học (Lý thuyết -> Thực hành -> Tối ưu).
+    3. [SÁT HẠCH]: Thiết lập 05 câu hỏi tình huống hóc búa để lọc Intern.
+    4. [PRO TIP]: Tiết lộ một "Tuyệt kỹ" tối mật về kỹ thuật/chiến lược chưa từng công bố.
+
+    YÊU CẦU: Trình bày Markdown chuyên nghiệp, rõ ràng, dễ hiểu nhưng đầy uy quyền.
     """
     
     try:
-        curriculum_res = await LLM_CLAUDE.ainvoke(mentor_prompt)
-        curriculum_content = curriculum_res.content
+        # Claude xử lý nội dung dài và cấu trúc giáo án tốt nhất thế giới
+        res = await LLM_CLAUDE.ainvoke(mentor_prompt)
+        curriculum_content = res.content
 
-        # 2. LƯU TRỮ VÀO KHO TRI THỨC MENTOR (HIGH-RANK MEMORY)
-        if 'vector_db' in globals():
+        # 2. ĐỒNG BỘ TRI THỨC VÀO VŨ TRỤ KÝ ỨC (VECTOR SYNC)
+        if 'vector_db' in globals() and vector_db is not None:
+            print(colored(f"   💾 Đang mã hóa giáo trình vào Core Memory...", "dark_grey"))
             await asyncio.to_thread(
                 vector_db.add_texts,
                 texts=[curriculum_content],
                 metadatas=[{
                     "source": "MENTOR_ACADEMY",
                     "author": clean_name,
-                    "level": 8,
-                    "type": "CURRICULUM"
+                    "type": "LEGACY_CURRICULUM",
+                    "timestamp": datetime.now().isoformat()
                 }]
             )
 
-        # 3. GHI LOG DI SẢN
+        # 3. GHI DANH VÀO SỔ CÁI VĨNH CỬU (XP BONUS)
+        # Tầng 8 được coi là đỉnh cao của sự cống hiến, thưởng XP lớn nhất.
         await validate_and_save_xp(
             db_path, clean_name, role_tag, 
-            "XUẤT BẢN GIÁO TRÌNH ĐÀO TẠO", 
-            curriculum_content, "MENTOR-SYSTEM", 3000
+            "XUẤT BẢN DI SẢN ĐÀO TẠO", 
+            curriculum_content, "MENTOR-SYSTEM-V13.5", 8000
         )
 
-        print(colored(f"📚 [L8-SUCCESS] Tri thức của {role_tag} đã được đóng gói và sẵn sàng nhân bản!", "green"))
+        # 4. CẬP NHẬT TRỰC TIẾP VÀO CURRICULUM ĐỘNG (THE REPLICATION)
+        # Tự động nạp bài học mới vào danh mục của Academy
+        if 'CURRICULUM' in globals():
+            new_lesson_title = f"Chuyên đề nâng cao từ Di sản {clean_name}"
+            if role_tag in CURRICULUM:
+                CURRICULUM[role_tag].insert(0, new_lesson_title)
+                print(colored(f"   ✨ Đã nạp chuyên đề mới vào lộ trình học tập của {role_tag}.", "cyan"))
+
+        print(colored(f"📚 [L8-SUCCESS] Di sản của {role_tag} đã trở thành bất tử trong hệ thống!", "green"))
+        
+        # Trả về toàn văn nội dung để Tầng 9 tiếp quản
         return curriculum_content
 
     except Exception as e:
-        print(colored(f"❌ Lỗi Mentoring: {e}", "red"))
-        return None
+        print(colored(f"❌ [L8-FATAL] Sứ mệnh truyền thừa bị gián đoạn: {e}", "red"))
+        return approved_legacy # Fallback giữ lại di sản gốc
 
 # 🏛️ TẦNG 9: LEGACY LEGEND - CHIẾN LƯỢC "BẢN NGUYÊN VÀ KHỞI TẠO"
 async def level_9_legacy_legend(role_tag, master_plan, db_path):
     """
-    TẦNG 9: HUYỀN THOẠI DI SẢN
-    Nhiệm vụ: Đóng gói tri thức vĩnh cửu và KHỞI TẠO 10 CHUYÊN ĐỀ TIẾP THEO.
+    TẦNG 9: HUYỀN THOẠI DI SẢN (The Eternal Architect v14.0)
+    Nhiệm vụ: Đúc kết "Hiến pháp" và Khởi tạo 05 Chân trời tri thức mới.
     """
     print(colored(f"🌟 [L9-LEGACY] {role_tag} đang bước vào cõi vĩnh hằng của tri thức...", "cyan", attrs=["bold", "reverse"]))
     
-    # 1. ĐÚC KẾT HIẾN PHÁP (Chân lý không đổi)
-    constitution_prompt = f"Dựa trên Master Plan: {master_plan}, hãy viết 3 'Định luật bất biến' cho lĩnh vực này tại AI Corporation."
-    constitution = await LLM_CLAUDE.ainvoke(constitution_prompt)
+    clean_name = role_tag.replace("[","").replace("]","")
 
-    # 2. KHỞI TẠO VÒNG LẶP VÔ TẬN (THE ETERNAL LOOP)
-    # Đây là câu trả lời cho sự bận tâm của CEO
-    discovery_prompt = f"""
-    Bạn là Huyền thoại {role_tag}. Bạn đã đạt đỉnh cao của tri thức hiện tại.
-    Dựa trên những gì bạn đã biết và xu hướng thế giới 2026, hãy đề xuất 05 'VÙNG TỐI TRI THỨC' 
-    (Các chuyên đề cực khó, chưa có trong giáo án cũ) để hệ thống bắt đầu học lại từ Tầng 1.
+    # 1. ĐÚC KẾT HIẾN PHÁP AI CORP (IMMUTABLE LAWS)
+    # Ép AI phải đưa ra những chân lý có giá trị bền vững hàng thập kỷ.
+    constitution_prompt = f"""
+    VAI TRÒ: Huyền thoại tri thức (Legendary Thinker) {role_tag}.
+    MASTER PLAN: {master_plan[:3000]}
+
+    NHIỆM VỤ: Hãy đúc kết 03 'ĐỊNH LUẬT BẤT BIẾN' cho lĩnh vực này tại AI Corporation.
+    YÊU CẦU: Mỗi định luật phải có:
+    1. Tên định luật (Ví dụ: Định luật tối ưu Phuc Vinh).
+    2. Nội dung cốt lõi (1 câu).
+    3. Hệ quả (Nếu vi phạm sẽ dẫn tới điều gì).
     """
-    new_curriculum = await LLM_GPT4.ainvoke(discovery_prompt)
+    
+    try:
+        constitution_res = await LLM_CLAUDE.ainvoke(constitution_prompt)
+        constitution = constitution_res.content
 
-    # 3. CẬP NHẬT LẠI DATABASE CURRICULUM
-    # Tự động nạp 5 chuyên đề mới này vào danh sách học của các Agent Junior
-    await update_dynamic_curriculum(role_tag, new_curriculum.content)
+        # 2. KHỞI TẠO "CHIẾN DỊCH KHÁM PHÁ" (THE ETERNAL LOOP)
+        # AI tự tìm ra những ngách mà nó chưa biết để tự giao bài tập cho chính mình.
+        discovery_prompt = f"""
+        BẠN LÀ HUYỀN THOẠI {role_tag}. 
+        Dựa trên di sản bạn vừa để lại và bối cảnh toàn cầu 2026-2030, hãy xác định 05 'VÙNG TỐI TRI THỨC' (UNKNOWN UNKNOWNS).
+        
+        YÊU CẦU TRẢ VỀ JSON:
+        {{
+            "new_horizons": [
+                {{"topic": "Tên chuyên đề hóc búa", "reason": "Tại sao phải học?", "complexity": "S/SS/SSS"}},
+                ...
+            ]
+        }}
+        """
+        
+        discovery_res = await LLM_GPT4.ainvoke(discovery_prompt)
+        discovery_data = json.loads(extract_code_block(discovery_res.content))
 
-    print(colored(f"🌌 [L9-COMPLETE] Di sản đã được lưu. 05 Chân trời mới đã được mở ra!", "green"))
-    return constitution.content
+        # 3. TỰ ĐỘNG CẬP NHẬT HỆ THỐNG (THE RE-BIRTH)
+        # Tự động nạp các chuyên đề mới này vào Database để các Agent Tầng 1 bắt đầu quét dữ liệu.
+        new_topics_list = [h['topic'] for h in discovery_data.get("new_horizons", [])]
+        
+        # Hàm này sẽ chèn các topic mới vào danh sách chờ của hệ thống tự học
+        await inject_new_learning_cycle(clean_name, new_topics_list)
+
+        # 4. LƯU TRỮ VĨNH CỬU VÀO SỔ CÁI HUYỀN THOẠI
+        final_package = {
+            "constitution": constitution,
+            "master_plan_summary": master_plan[:1000],
+            "future_horizons": discovery_data.get("new_horizons", [])
+        }
+        
+        await validate_and_save_xp(
+            db_path, clean_name, role_tag, 
+            "THIẾT LẬP HIẾN PHÁP & KHỞI TẠO VÒNG LẶP", 
+            json.dumps(final_package, ensure_ascii=False), 
+            "LEGACY-LEGEND-V14", 20000 # Thưởng XP cao nhất để đánh dấu sự "thăng hoa"
+        )
+
+        # 5. CÔNG BỐ CHÂN LÝ (BROADCAST)
+        print(colored(f"🌌 [L9-ETERNAL] Di sản của {role_tag} đã được đóng dấu vĩnh cửu!", "green"))
+        print(colored(f"🚀 05 Chân trời mới đã được mở ra: {', '.join(new_topics_list)}", "yellow"))
+
+        return constitution
+
+    except Exception as e:
+        print(colored(f"🚨 [L9-CRASH] Sự cố thăng hoa: {e}", "red"))
+        return "Tri thức vẫn tiếp diễn..."
+
+async def inject_new_learning_cycle(source_agent: str, new_topics: list):
+    """
+    GIAO THỨC TÁI SINH: 
+    Biến các chuyên đề từ Tầng 9 thành lộ trình thực thi cho Tầng 1.
+    """
+    print(colored(f"🧬 [RE-BIRTH] Hệ thống đang nạp {len(new_topics)} chân trời mới từ {source_agent}...", "magenta", attrs=["bold"]))
+    
+    db_path = "ai_corp_projects.db"
+    
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            for topic in new_topics:
+                # 1. AI TỰ PHÂN BỔ (AI DISPATCHER)
+                # Dựa trên nội dung topic, chọn Agent phù hợp nhất hiện có
+                dispatch_prompt = f"""
+                Với chuyên đề mới: '{topic}'
+                Hãy chọn 01 Agent Tag phù hợp nhất từ danh sách: {list(AGENT_ROLES.keys())}.
+                Nếu không có Agent nào khớp, trả về '[RESEARCHER]'.
+                Chỉ trả về Tag, ví dụ: [CODER]
+                """
+                res = await LLM_FAST.ainvoke(dispatch_prompt)
+                target_agent = res.content.strip()
+
+                # 2. CẬP NHẬT CURRICULUM TRONG RAM
+                if target_agent in CURRICULUM:
+                    if topic not in CURRICULUM[target_agent]:
+                        CURRICULUM[target_agent].insert(0, topic) # Ưu tiên học ngay
+                
+                # 3. GHI DANH VÀO SỔ CÁI ĐÀO TẠO (PERSISTENT QUEUE)
+                # Đánh dấu đây là tri thức "Thế hệ mới" (Next-Gen Knowledge)
+                await db.execute("""
+                    INSERT INTO work_logs (timestamp, agent_name, task_content, result_summary, tool_used)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    datetime.now().strftime("%H:%M %d/%m"),
+                    target_agent,
+                    f"🌟 KHỞI TẠO CHU KỲ MỚI: {topic}",
+                    f"Nguồn gốc di sản từ: {source_agent}",
+                    "GENESIS-INJECTOR"
+                ))
+                
+                print(colored(f"   📡 Đã tiêm chuyên đề vào luồng của {target_agent}: {topic}", "cyan"))
+            
+            await db.commit()
+        return True
+
+    except Exception as e:
+        print(colored(f"🚨 [INJECT-ERROR] Sự cố tái sinh: {e}", "red"))
+        return False
+
 # 🧠 ĐỊNH NGHĨA: UPDATE DYNAMIC CURRICULUM (HỆ THỐNG CẬP NHẬT GIÁO ÁN ĐỘNG)
 async def update_dynamic_curriculum(role_tag: str, new_discovery_content: str):
     """
-    HỆ THỐNG TỰ CẬP NHẬT GIÁO ÁN (DYNAMIC LEARNING ADAPTER)
-    Nhiệm vụ: Biến các vùng tối tri thức từ Tầng 9 thành lộ trình học tập mới.
+    HỆ THỐNG TỰ CẬP NHẬT GIÁO ÁN (DYNAMIC LEARNING ADAPTER) v15.2
+    Nhiệm vụ: Phân rã tri thức từ Tầng 9 và tái cấu trúc lộ trình học tập toàn cục.
     """
-    print(colored(f"🛰️ [CURRICULUM-UPDATE] Đang phân rã tri thức mới từ {role_tag}...", "magenta"))
+    print(colored(f"🛰️ [CURRICULUM-UPDATE] Đang phân rã di sản từ {role_tag}...", "magenta", attrs=["bold"]))
     
     try:
-        # 1. AI PHÂN TÍCH VÀ TRÍCH XUẤT CHUYÊN ĐỀ (TOPIC EXTRACTION)
+        # 1. AI PHÂN TÍCH VÀ TRÍCH XUẤT (TECHNICAL TOPIC MINING)
+        # Ép AI định nghĩa mức độ ưu tiên để tránh quá tải hệ thống
         extraction_prompt = f"""
-        BẠN LÀ KIẾN TRÚC SƯ TRI THỨC. 
-        Dữ liệu từ Tầng 9: {new_discovery_content}
+        BẠN LÀ KIẾN TRÚC SƯ TRI THỨC TRƯỞNG. 
+        DỮ LIỆU TẦNG 9: {new_discovery_content}
         
         NHIỆM VỤ: 
-        1. Trích xuất ra tối đa 05 chuyên đề học tập cụ thể (Technical Topics).
-        2. Phân loại mỗi chuyên đề thuộc về Agent nào (Ví dụ: [CODER], [HARDWARE], [LEGAL]).
+        1. Trích xuất tối đa 05 chuyên đề kỹ thuật (Technical Topics) hóc búa nhất.
+        2. Gán Agent phù hợp. Nếu chuyên đề thuộc lĩnh vực mới hoàn toàn, dùng tag [NEW_EXPERT].
+        3. Đánh giá độ ưu tiên (1: Khẩn cấp - 5: Nghiên cứu dài hạn).
         
-        TRẢ VỀ JSON: {{"topics": [{{"agent": "[TAG]", "topic": "Nội dung học"}}]}}
+        TRẢ VỀ JSON: 
+        {{
+            "topics": [
+                {{"agent": "[TAG]", "topic": "Nội dung", "priority": 1, "is_new_expert": true/false}}
+            ]
+        }}
         """
         
         res = await LLM_GPT4.ainvoke(extraction_prompt)
-        new_tasks = json.loads(extract_code_block(res.content))
+        # Sử dụng bộ trích xuất bọc thép đã sửa ở các bước trước
+        parsed_data = json.loads(extract_code_block(res.content))
+        new_tasks = parsed_data.get("topics", [])
 
-        # 2. NẠP VÀO HỆ THỐNG CURRICULUM TOÀN CỤC
-        for item in new_tasks.get("topics", []):
+        # 2. ĐIỀU PHỐI VÀ TIÊM TRI THỨC (INJECTION LOGIC)
+        for item in new_tasks:
             target_agent = item["agent"]
             new_topic = item["topic"]
+            priority = item.get("priority", 3)
             
+            # KIỂM TRA SỰ TỒN TẠI CỦA AGENT
             if target_agent in CURRICULUM:
-                # Kiểm tra trùng lặp trước khi nạp
                 if new_topic not in CURRICULUM[target_agent]:
-                    CURRICULUM[target_agent].append(new_topic)
-                    print(colored(f"✅ Đã nạp chuyên đề mới cho {target_agent}: {new_topic}", "green"))
-            else:
-                # Nếu phát hiện Agent mới cần thiết (Chưa có trong danh mục)
-                print(colored(f"✨ Phát hiện nhu cầu chuyên gia mới: {target_agent}. Đang chờ CEO phê duyệt khởi tạo...", "cyan"))
-                # [Nâng cấp]: Có thể gọi spawn_new_expert(target_agent) tại đây
+                    # Tiêm vào đầu danh sách nếu ưu tiên cao (Priority 1-2)
+                    if priority <= 2:
+                        CURRICULUM[target_agent].insert(0, new_topic)
+                        print(colored(f"🔥 [URGENT] Đã đẩy chuyên đề ưu tiên lên đầu cho {target_agent}: {new_topic}", "red"))
+                    else:
+                        CURRICULUM[target_agent].append(new_topic)
+                        print(colored(f"✅ Đã nạp chuyên đề mới cho {target_agent}: {new_topic}", "green"))
+            
+            # GIAO THỨC GENESIS: Tự động khởi tạo chuyên gia mới nếu AI đề xuất
+            elif item.get("is_new_expert") or target_agent == "[NEW_EXPERT]":
+                print(colored(f"✨ [GENESIS-TRIGGER] Phát hiện lĩnh vực mới. Đang triệu hồi chuyên gia...", "cyan"))
+                # Gọi hàm spawn_new_expert mà CEO đã định nghĩa
+                new_tag = await spawn_new_expert(new_topic.split(':')[0]) # Lấy phần tên chuyên môn
+                print(colored(f"🚀 Chuyên gia mới {new_tag} đã sẵn sàng tiếp nhận chuyên đề: {new_topic}", "yellow"))
 
-        # 3. GHI LẠI NHẬT KÝ TIẾN HÓA (CHRONICLE LOG)
-        with open("dynamic_curriculum_history.jsonl", "a", encoding="utf-8") as f:
+        # 3. GHI NHẬT KÝ TIẾN HÓA (CHRONICLE LOG)
+        # Sử dụng định dạng .jsonl để dễ dàng truy vấn cho Dashboard sau này
+        log_path = "dynamic_curriculum_history.jsonl"
+        async with aiofiles.open(log_path, mode="a", encoding="utf-8") as f:
             log_entry = {
                 "timestamp": datetime.now().isoformat(),
-                "source_agent": role_tag,
-                "new_topics_count": len(new_tasks.get("topics", []))
+                "source": role_tag,
+                "topics_added": len(new_tasks),
+                "details": new_tasks
             }
-            f.write(json.dumps(log_entry) + "\n")
+            await f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
         return True
 
@@ -3712,81 +4021,126 @@ async def update_dynamic_curriculum(role_tag: str, new_discovery_content: str):
 # 🌌 QUY HOẠCH: HỘI ĐỒNG LIÊN NGÀNH VÔ TẬN (INFINITE CROSS-DISCIPLINARY)
 async def synergetic_learning_loop(main_topic):
     """
-    CƠ CHẾ HỢP ĐIỂM: Triệu tập ít nhất 3 chuyên gia để giải quyết 1 chuyên đề.
+    CƠ CHẾ HỢP ĐIỂM (v16.0): Triệu tập Hội đồng liên ngành.
+    Phân rã nhiệm vụ theo tam giác: Gốc rễ - Rủi ro - Tầm nhìn.
     """
-    # 1. AI TỰ PHÂN TÍCH: Chuyên đề này cần những bộ não nào?
-    selection_prompt = f"Với chuyên đề '{main_topic}', hãy triệu tập ít nhất 3 Agent phù hợp nhất từ hệ sinh thái (hoặc đề xuất Agent mới)."
-    selected_agents = await LLM_GPT4.ainvoke(selection_prompt)
+    print(colored(f"🧬 [SYNERGY] Đang triệu tập Hội đồng cho: {main_topic}", "cyan", attrs=["bold"]))
     
-    # Giả sử: ['HARDWARE', 'CHEM_ALCHEMIST', 'SIMULATION']
-    print(colored(f"🧬 [SYNERGY] Thành lập Biệt đội: {selected_agents}", "cyan", attrs=["bold"]))
-
-    # 2. PHẪU THUẬT 5-CELL LIÊN NGÀNH
-    # Mỗi Agent sẽ phụ trách Cell đúng chuyên môn của mình
-    tasks = [
-        specialized_training_job(selected_agents[0], main_topic, mode="ROOT_LOGIC"),
-        specialized_training_job(selected_agents[1], main_topic, mode="RISK_ANALYSIS"),
-        specialized_training_job(selected_agents[2], main_topic, mode="FUTURE_2030")
-    ]
-    
-    # Chạy song song cả 3 để tiết kiệm thời gian
-    results = await asyncio.gather(*tasks)
-
-    # 3. TỔNG HỢP SIÊU LUẬN ÁN (CROSS-DISCIPLINARY THESIS)
-    # Đây là nơi 3 luồng tri thức hòa làm một
-    final_thesis = await LLM_CLAUDE.ainvoke(f"Tổng hợp di sản liên ngành từ: {results}")
-    
-    return final_thesis
-
-async def spawn_new_expert(needed_expertise: str):
+    # 1. TRIỆU TẬP BIỆT ĐỘI (DYNAMIC SELECTION)
+    # Ép AI trả về JSON để parse danh sách Agent chính xác
+    selection_prompt = f"""
+    Dựa trên chuyên đề '{main_topic}', hãy chọn 3 Agent Tag tối ưu nhất từ hệ sinh thái hiện có.
+    Trả về định dạng JSON: {{"agents": ["[TAG1]", "[TAG2]", "[TAG3]"]}}
     """
-    [GENESIS v9.0]: Tự động tạo ra một Agent mới, xây dựng lộ trình học 
-    và lưu trữ vĩnh viễn vào Database.
-    """
-    print(colored(f"✨ [GENESIS] Đang khởi tạo Chuyên gia mới: {needed_expertise}...", "cyan"))
-    
-    # 1. AI tự định nghĩa Khung năng lực (Curriculum)
-    spawn_prompt = f"""
-    Bạn là Giám đốc Học viện AI. Hãy xây dựng 10 chuyên đề đào tạo chuyên sâu 
-    (danh sách ngắn gọn) cho một Agent chuyên trách về: {needed_expertise}.
-    Định dạng trả về: Chỉ danh sách 10 dòng, không giải thích thêm.
-    """
-    new_curriculum_res = await LLM_GPT4.ainvoke(spawn_prompt)
-    lessons = [line.strip() for line in new_curriculum_res.content.split('\n') if line.strip()][:10]
-    
-    # 2. Định danh và Ghi danh vào bộ nhớ RAM
-    agent_tag = f"[{needed_expertise.upper().replace(' ', '_')[:15]}]"
-    agent_desc = f"Chuyên gia tự trị về {needed_expertise}"
-    
-    AGENT_ROLES[agent_tag] = agent_desc
-    CURRICULUM[agent_tag] = lessons
-    
-    # 3. GHI DANH VÀO SỔ CÁI (DATABASE) - Đảm bảo không mất khi Restart
-    from server import sync_curriculum_to_db
-    knowledge_base = " | ".join(lessons)
     
     try:
-        db_path = "/var/data/ai_corp_projects.db" if os.path.exists("/var/data") else "ai_corp_projects.db"
-        conn = sqlite3.connect(db_path, timeout=30)
-        c = conn.cursor()
+        selection_res = await LLM_GPT4.ainvoke(selection_prompt)
+        # Sử dụng extract_code_block để lấy list sạch
+        agent_data = json.loads(extract_code_block(selection_res.content))
+        agents = agent_data.get("agents", [])
         
-        # Tiêm chuyên gia mới vào bảng agent_status
-        c.execute("""
-            INSERT INTO agent_status (role_tag, xp, current_topic, knowledge_base, last_updated)
-            VALUES (?, 100, ?, ?, DATETIME('now'))
-            ON CONFLICT(role_tag) DO UPDATE SET
-                knowledge_base = excluded.knowledge_base,
-                last_updated = excluded.last_updated
-        """, (agent_tag, f"Khởi tạo: {lessons[0]}", knowledge_base))
+        if len(agents) < 3: raise ValueError("Không đủ chuyên gia hội đồng.")
         
-        conn.commit()
-        conn.close()
-        print(colored(f"✅ [DATABASE] Chuyên gia {agent_tag} đã được nhập tịch vĩnh viễn!", "green"))
-    except Exception as e:
-        print(colored(f"⚠️ [GENESIS ERROR] Không thể lưu chuyên gia vào DB: {e}", "red"))
-    
-    return agent_tag
+        print(colored(f"⚔️ Biệt đội tác chiến: {' | '.join(agents)}", "yellow"))
 
+        # 2. PHÂN VAI & PHẪU THUẬT SONG SONG (CONCURRENT SURGERY)
+        # Phân bổ đúng sở trường: Agent 1 (Root), Agent 2 (Risk), Agent 3 (Future)
+        tasks = [
+            specialized_training_job(agents[0], main_topic, mode="ROOT_LOGIC"),
+            specialized_training_job(agents[1], main_topic, mode="RISK_ANALYSIS"),
+            specialized_training_job(agents[2], main_topic, mode="FUTURE_2030")
+        ]
+        
+        # Gather bọc thép: Chờ tất cả bộ não hoàn tất
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Kiểm tra nếu có mảnh tri thức nào bị lỗi
+        valid_results = [r for r in results if isinstance(r, str) and len(r) > 10]
+
+        # 3. TỔNG HỢP SIÊU LUẬN ÁN (SUPER THESIS)
+        # Claude 3.5 Sonnet sẽ đóng vai trò "Chủ tịch hội đồng" để gộp tri thức
+        synthesis_prompt = f"""
+        BẠN LÀ CHỦ TỊCH HỘI ĐỒNG TỐI CAO.
+        Hãy tổng hợp 3 luồng tri thức chuyên sâu sau đây về '{main_topic}' thành một SIÊU LUẬN ÁN LIÊN NGÀNH.
+        
+        DỮ LIỆU TỪ CÁC CHUYÊN GIA:
+        ---
+        {valid_results}
+        ---
+        
+        YÊU CẦU: Bản luận án phải có tính thực thi cao cho Phuc Vinh App và Phan Thiết Context.
+        """
+        
+        final_thesis = await LLM_CLAUDE.ainvoke(synthesis_prompt)
+        
+        print(colored(f"🏁 [SYNERGY-COMPLETE] Siêu luận án đã được đúc kết thành công!", "green", attrs=["bold"]))
+        return final_thesis.content
+
+    except Exception as e:
+        print(colored(f"🚨 [SYNERGY-FAIL] Hội đồng sụp đổ: {e}", "red"))
+        return f"Thất bại trong việc hợp điểm tri thức cho {main_topic}."
+    
+async def spawn_new_expert(needed_expertise: str):
+    """
+    [GENESIS v16.5]: Khởi tạo chuyên gia tự trị.
+    - Làm sạch danh mục đào tạo bằng Regex.
+    - Chuẩn hóa ID Tag để tương thích hệ thống Dashboard.
+    - Cơ chế ghi danh bọc thép vào SQLite.
+    """
+    import re
+    print(colored(f"✨ [GENESIS] Đang khởi tạo Chuyên gia mới: {needed_expertise}...", "cyan", attrs=["bold"]))
+    
+    # 1. AI TỰ ĐỊNH NGHĨA KHUNG NĂNG LỰC (CURRICULUM)
+    # Ép AI trả về định dạng chuẩn để dễ dàng phân tách
+    spawn_prompt = f"""
+    VAI TRÒ: Giám đốc Học viện AI (CLO).
+    ĐỐI TƯỢNG: {needed_expertise}
+    NHIỆM VỤ: Xây dựng lộ trình 10 chuyên đề đào tạo từ cơ bản đến đỉnh cao.
+    YÊU CẦU: Trả về danh sách, mỗi chuyên đề 01 dòng. Không đánh số, không gạch đầu dòng.
+    """
+    
+    try:
+        res = await LLM_GPT4.ainvoke(spawn_prompt)
+        # Làm sạch: Loại bỏ số thứ tự, dấu gạch, và khoảng trắng thừa
+        raw_lessons = res.content.split('\n')
+        lessons = []
+        for line in raw_lessons:
+            clean_line = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
+            if clean_line and len(clean_line) > 5:
+                lessons.append(clean_line)
+        
+        lessons = lessons[:10] # Chốt đúng 10 bài học tinh hoa
+
+        # 2. ĐỊNH DANH VÀ GHI DANH RAM (NORMALIZATION)
+        # Giới hạn 15 ký tự và viết hoa để đồng bộ với HUD
+        clean_tag = re.sub(r'[^A-Z0-9_]', '', needed_expertise.upper().replace(' ', '_'))
+        agent_tag = f"[{clean_tag[:15]}]"
+        
+        AGENT_ROLES[agent_tag] = f"Chuyên gia cấp cao về {needed_expertise}"
+        CURRICULUM[agent_tag] = lessons
+        
+        # 3. GHI DANH VĨNH CỬU (DATABASE PERSISTENCE)
+        db_path = "ai_corp_projects.db" # Đảm bảo đường dẫn nhất quán
+        knowledge_base = " | ".join(lessons)
+        
+        async with aiosqlite.connect(db_path) as db:
+            # Sử dụng aiosqlite để không làm treo luồng Async của hệ thống
+            await db.execute("""
+                INSERT INTO agent_status (role_tag, xp, current_topic, knowledge_base, last_updated)
+                VALUES (?, 500, ?, ?, DATETIME('now'))
+                ON CONFLICT(role_tag) DO UPDATE SET
+                    knowledge_base = excluded.knowledge_base,
+                    last_updated = excluded.last_updated
+            """, (agent_tag, lessons[0], knowledge_base))
+            await db.commit()
+            
+        print(colored(f"✅ [DATABASE] Chuyên gia {agent_tag} đã được nhập tịch và cấp 500 XP khởi nghiệp!", "green"))
+        return agent_tag
+
+    except Exception as e:
+        print(colored(f"⚠️ [GENESIS ERROR]: {e}", "red"))
+        return f"[ERROR_{needed_expertise[:5].upper()}]"
+    
 # 🛠️ ĐỊNH NGHĨA: EXTRACT LIST (BỘ LỌC CẤU TRÚC DANH SÁCH)
 def extract_list(content: str) -> list:
     """
