@@ -3197,52 +3197,66 @@ AGENT_ROLES = {
 }
 async def auto_learning_cycle():
     global IS_SYSTEM_BUSY, LAST_INTERACTION_TIME, ACADEMY_IDX 
-    
-    # 1. Tách biệt bộ đếm Idle của Academy để không bị Reset bởi chính nó
     ACADEMY_LAST_RUN = datetime.now()
 
     while True:
         now = datetime.now()
-        # Idle này chỉ dành cho tương tác của CEO
         ceo_idle_seconds = (now - LAST_INTERACTION_TIME).total_seconds()
-        # Nghỉ giữa các tiết học
         academy_rest_seconds = (now - ACADEMY_LAST_RUN).total_seconds()
 
-        # Monitor (Chỉnh idx % 1 để hiện log liên tục khi đang debug)
+        # Monitor trạng thái hệ thống
         if ACADEMY_IDX % 1 == 0: 
              print(colored(f"📡 [MONITOR] CEO Idle: {int(ceo_idle_seconds)}/120s | Rest: {int(academy_rest_seconds)}/30s", "dark_grey"))
 
-        # 2. ĐIỀU KIỆN KÍCH HOẠT: Chỉ cần CEO không bận và đã nghỉ đủ tiết
+        # Điều kiện kích hoạt
         if IS_SYSTEM_BUSY or ceo_idle_seconds < 120 or academy_rest_seconds < 30:
             await asyncio.sleep(10)
             continue
 
         agents_queue = list(CURRICULUM.keys())
         current_agent = agents_queue[ACADEMY_IDX % len(agents_queue)]
-        
-        # ÉP TĂNG CHỈ SỐ NGAY TRƯỚC KHI HỌC (Để nếu lỗi thì lần sau vẫn đổi người)
         ACADEMY_IDX += 1 
         IS_SYSTEM_BUSY = True 
         
         try:
-            print(colored(f"\n🧠 [EVOLUTION] Lượt #{ACADEMY_IDX}: {current_agent} bắt đầu học...", "magenta", attrs=["bold"]))
+            print(colored(f"\n🧠 [EVOLUTION] Lượt #{ACADEMY_IDX}: {current_agent} đang tổng hợp tri thức toàn phần...", "magenta", attrs=["bold"]))
+            
+            # 1. THỰC THI ĐÀO TẠO
             training_result = await specialized_training_job(current_agent)
             
-            # Khắc phục lỗi NoneType: Nếu hàm trả về None, tạo kết quả giả để tránh Crash
+            # 2. KIỂM TRA DỮ LIỆU ĐẦU RA
             if not training_result:
-                training_result = {"score": 0}
+                print(colored(f"⚠️ [FAILED] {current_agent} không trả về kết quả. Hủy lượt.", "red"))
+                continue
 
+            # Trích xuất nội dung (Đảm bảo lấy toàn bộ thay vì cắt bỏ)
+            # Giả định training_result trả về dict có key 'content'
+            full_content = training_result.get('content', '') if isinstance(training_result, dict) else str(training_result)
+            xp_gain = training_result.get('score', 0) if isinstance(training_result, dict) else 0
+
+            # Chặn nếu nội dung vẫn bị rỗng hoặc quá ngắn (dưới 50 ký tự - lỗi hệ thống)
+            if len(full_content) < 50:
+                print(colored(f"⚠️ [REJECTED] Nội dung quá ngắn ({len(full_content)} ký tự). Không ghi vào di sản.", "yellow"))
+                continue
+
+            # 3. GHI TOÀN VĂN VÀO DATABASE
+            # Tôi đổi tên Agent thành ACADEMY_MONITOR để Dashboard dễ lọc
             log_work_to_db(
-                agent_name="Academy_Monitor",
-                task_content=f"Học tập: {current_agent}",
-                result_summary=f"Hoàn tất. XP: +{training_result.get('score', 0)}",
-                tool="Self-Learning-v6.0"
+                agent_name="ACADEMY_MONITOR",
+                task_content=f"📘 [DI SẢN] Nghiên cứu: {current_agent}",
+                result_summary=full_content, # GHI ĐẦY ĐỦ Ở ĐÂY
+                tool="Evolution-v7.0-FullIntel",
+                cost=0.00004,
+                xp_gain=xp_gain
             )
+            
+            print(colored(f"✅ [COMPLETED] Đã nạp {len(full_content)} ký tự tri thức từ {current_agent}.", "green"))
+
         except Exception as e:
             print(colored(f"🚨 [ACADEMY CRASH]: {e}", "red"))
         finally:
             IS_SYSTEM_BUSY = False 
-            ACADEMY_LAST_RUN = datetime.now() # Chỉ Reset mốc nghỉ của Academy
+            ACADEMY_LAST_RUN = datetime.now()
 
 # 🛠️ CẤU TRÚC CODE GIA CỐ CHO TẦNG 1 & 2
 async def level_1_scout(topic):
