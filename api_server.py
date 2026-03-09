@@ -121,11 +121,11 @@ except ImportError:
     pass
 # Import Voice
 try:
-    from voice_engine import client
-    VOICE_AVAILABLE = True
+    from voice_engine import generate_voice_free
+    VOICE_SYSTEM_READY = True
 except ImportError:
-    VOICE_AVAILABLE = False
-    client = None
+    VOICE_SYSTEM_READY = False
+    print(colored("⚠️ Voice Engine chưa được cài đặt hoặc thiếu file voice_engine.py", "yellow"))
 
 # --- MODELS ---
 class ChatRequest(BaseModel):
@@ -2536,12 +2536,12 @@ LAST_ACTIVITY_TIME = datetime.now()
 async def websocket_nexus(websocket: WebSocket):
     await manager.connect(websocket)
     
-    # 1. TẠO SESSION ID RIÊNG BIỆT (Fix lỗi trộn lẫn ký ức)
+    # 1. TẠO SESSION ID RIÊNG BIỆT
     session_id = f"ws_{uuid.uuid4().hex[:8]}"
     print(colored(f"🔌 New Connection: {session_id}", "green"))
     
     try:
-        # Gửi lời chào (Dạng JSON cho Dashboard)
+        # Gửi lời chào
         await manager.send_json({
             "sender": "J.A.R.V.I.S",
             "content": "Hệ thống trực tuyến. Đang đồng bộ thời gian thực...",
@@ -2549,34 +2549,20 @@ async def websocket_nexus(websocket: WebSocket):
         }, websocket)
         
         while True:
+            # Nhận dữ liệu (Hỗ trợ cả Text và Binary nếu ngài mở rộng sau này)
             data = await websocket.receive_text()
             print(colored(f"⚡ [INPUT]: {data}", "cyan"))
             
-            # ============================================================
-            # PHẦN 1: KHÔI PHỤC CÁC TÍNH NĂNG CŨ (CỦA NGÀI)
-            # ============================================================
-            
-            # 1. THỜI GIAN THỰC (Bản nâng cấp Tầng 9)
+            # --- PHẦN 1: NGỮ CẢNH & KÝ ỨC ---
             now = datetime.now()
-            # Dùng cho Agent hiểu ngữ cảnh (Display)
             display_time = now.strftime("%H:%M, %d/%m/%Y") 
-            # Dùng để ghi vào Sổ Cái sau này (ISO Standard)
             db_timestamp = now.strftime("%Y-%m-%d %H:%M:%S") 
-            
             system_context = f"Hiện tại là {display_time}. Vị trí: Phan Thiết, Việt Nam."
             
-            # 2. HỒI TƯỞNG KÝ ỨC
             mem_ctx = ""
             if MEMORY_AVAILABLE:
                 mem_ctx = await run_in_threadpool(lambda: recall_relevant_memories(data))
-                if mem_ctx: print(colored(f"🧠 [KÝ ỨC]: {mem_ctx[:100]}...", "magenta"))
 
-            # ============================================================
-            # PHẦN 2: XỬ LÝ THÔNG MINH (KẾT HỢP LANGGRAPH)
-            # ============================================================
-            
-            # Tạo Prompt chứa đầy đủ thông tin: Thời gian + Ký ức + Câu hỏi
-            # Điều này giúp Agent (Họa sĩ/Coder) cũng biết bây giờ là mấy giờ
             full_prompt = f"""
             [SYSTEM CONTEXT]: {system_context}
             [MEMORY]: {mem_ctx}
@@ -2586,86 +2572,64 @@ async def websocket_nexus(websocket: WebSocket):
             reply_content = ""
             active_agent = "J.A.R.V.I.S"
 
-            # A. FAST TRACK (Giữ lại logic cũ cho các câu hỏi đơn giản để tiết kiệm)
-            # Nếu chỉ hỏi ngày giờ, giá cả -> Dùng Gemini/GPT trực tiếp cho nhanh
+            # --- PHẦN 2: XỬ LÝ THÔNG MINH ---
+            # A. FAST TRACK
             fast_keywords = ["bao nhiêu ngày", "tết", "thứ mấy", "ngày mấy", "mấy giờ", "thời tiết", "giá"]
             is_simple = any(k in data.lower() for k in fast_keywords) and not any(k in data.lower() for k in ["vẽ", "code", "lập trình"])
 
             if is_simple and LLM_GEMINI_LOGIC:
-                print(colored("🚀 Kích hoạt Fast Track (Real-time Context)...", "yellow"))
                 try:
-                    # 1. Thực thi phản hồi nhanh
                     ai_msg = await LLM_GEMINI_LOGIC.ainvoke(full_prompt)
                     reply_content = ai_msg.content
-                    active_agent = "SECRETARY" # Đổi tên đặc vụ ghi chép cho chuyên nghiệp
-
-                    # 2. GHI NHẬN DI SẢN NGAY LẬP TỨC (Dùng db_timestamp chuẩn ISO)
-                    # Tính toán chi phí giả định cực thấp cho Fast Track
-                    fast_cost = 0.00001 
-                    
-                    # Hàm ghi vào DB (Ngài cần đảm bảo hàm này chạy đồng bộ hoặc bọc trong threadpool)
-                    loop = asyncio.get_event_loop()
+                    active_agent = "SECRETARY"
                     await run_in_threadpool(lambda: save_work_log_to_db(
-                        agent=active_agent,
-                        task=data,
-                        result=reply_content,
-                        cost=fast_cost,
-                        timestamp=db_timestamp # Sử dụng YYYY-MM-DD HH:MM:SS
+                        agent=active_agent, task=data, result=reply_content, cost=0.00001, timestamp=db_timestamp
                     ))
-                    
-                    print(colored(f"💰 [SYSTEM]: {active_agent} đã nạp tri thức nhanh vào Sổ Cái.", "green"))
-                except Exception as e:
-                    print(colored(f"⚠️ Fast Track Error: {e}", "red"))
-                    pass
+                except Exception as e: print(colored(f"⚠️ Fast Track Error: {e}", "red"))
             
-            # B. DEEP THINKING (Giao thức bọc thép v23.7)
+            # B. DEEP THINKING
             if not reply_content and AI_AVAILABLE:
-                config = {"configurable": {"thread_id": session_id}}
-                print(colored("🧩 Chuyển giao cho Bộ Não Trung Tâm (LangGraph)...", "blue"))
-                
                 try:
+                    config = {"configurable": {"thread_id": session_id}}
                     input_message = HumanMessage(content=full_prompt)
-                    # Thực thi LangGraph
                     final_state = await ai_app.ainvoke({"messages": [input_message]}, config=config)
-                    
-                    # Trích xuất kết quả
-                    last_message = final_state['messages'][-1]
-                    reply_content = last_message.content
+                    reply_content = final_state['messages'][-1].content
                     active_agent = final_state.get("current_agent", "J.A.R.V.I.S")
 
-                    # --- PHẦN KIỂM TOÁN DI SẢN (AUDIT) ---
-                    # Tính toán chi phí thực tế từ token hoặc độ phức tạp (Giả lập)
-                    estimated_cost = len(reply_content) * 0.000005 
-                    
-                    # Ghi nhận vào Sổ Cái bằng chuẩn ISO db_timestamp
-                    loop = asyncio.get_event_loop()
                     await run_in_threadpool(lambda: save_work_log_to_db(
-                        agent=active_agent,
-                        task=data,
-                        result=reply_content,
-                        cost=estimated_cost,
-                        timestamp=db_timestamp # QUAN TRỌNG: YYYY-MM-DD HH:MM:SS
+                        agent=active_agent, task=data, result=reply_content, cost=len(reply_content)*0.000005, timestamp=db_timestamp
                     ))
-                    print(colored(f"💰 [SYSTEM]: {active_agent} đã nạp tri thức sâu vào Sổ Cái.", "green"))
-
                 except Exception as e:
-                    print(colored(f"🚨 Lỗi LangGraph: {e}", "red"))
-                    reply_content = "Thưa CEO, bộ não trung tâm gặp sự cố trong quá trình hội chẩn. Đang tái khởi động..."
-            # ============================================================
-            # PHẦN 3: PHẢN HỒI (DẠNG JSON CHO DASHBOARD)
-            # ============================================================
-            print(colored(f"🤖 [{active_agent}]: {reply_content}", "magenta"))
-            
-            # Gửi JSON xuống Client
-            await manager.send_json({
-                "sender": active_agent,
-                "content": reply_content,
-                "agent": active_agent # Dashboard dùng cái này để highlight icon
-            }, websocket)
-            
-                        # 4. GHI NHỚ LẠI
-            if MEMORY_AVAILABLE:
-                await run_in_threadpool(lambda: extract_and_save_memory(data, reply_content))
+                    reply_content = "Thưa CEO, bộ não trung tâm gặp sự cố. Đang tái khởi động..."
+
+            # --- PHẦN 3: PHẢN HỒI ĐA PHƯƠNG THỨC (TEXT + VOICE) ---
+            if reply_content:
+                # 1. Gửi JSON văn bản trước (Ưu tiên hiển thị giao diện)
+                await manager.send_json({
+                    "sender": active_agent,
+                    "content": reply_content,
+                    "agent": active_agent
+                }, websocket)
+
+                # 2. PHÁT NGÔN MIỄN PHÍ (Chạy ngay sau khi có nội dung)
+                if VOICE_SYSTEM_READY:
+                    try:
+                        # Kiểm tra độ dài văn bản (Tránh voice engine bị quá tải nếu text quá dài)
+                        speech_text = reply_content[:500] # Giới hạn 500 ký tự đầu để phản xạ cực nhanh
+                        
+                        audio_bytes = await generate_voice_free(speech_text)
+                        
+                        if audio_bytes:
+                            # Quan trọng: Gửi dưới dạng binary (bytes)
+                            await websocket.send_bytes(audio_bytes)
+                            print(colored(f"🔊 [VOICE]: {active_agent} đang phản hồi...", "blue"))
+                    except Exception as e:
+                        print(colored(f"❌ Voice Output Error: {e}", "red"))
+
+            # 4. GHI NHỚ LẠI (Tách biệt khỏi luồng voice để không làm chậm voice)
+            if MEMORY_AVAILABLE and reply_content:
+                # Chạy ngầm việc lưu ký ức để Commander không phải chờ
+                asyncio.create_task(run_in_threadpool(lambda: extract_and_save_memory(data, reply_content)))
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
