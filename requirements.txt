@@ -36,3 +36,7 @@ termcolor
 cryptography
 aiosqlite
 logger
+aiofiles
+edge-tts
+SpeechRecognition
+pydub
