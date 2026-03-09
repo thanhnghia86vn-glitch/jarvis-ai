@@ -1,53 +1,48 @@
 import os
+import asyncio
 import logging
-from openai import OpenAI
+import edge_tts
+from io import BytesIO
 
-# Cấu hình Log để dễ debug trên Render
-logger = logging.getLogger("VOICE_ENGINE")
+logger = logging.getLogger("VOICE_ENGINE_FREE")
 
-# --- 1. KHỞI TẠO CLIENT AN TOÀN (CHỐNG SẬP SERVER) ---
-client = None
-try:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        client = OpenAI(api_key=api_key)
-        logger.info("✅ VOICE ENGINE: Đã kết nối OpenAI TTS.")
-    else:
-        logger.warning("⚠️ VOICE ENGINE: Không tìm thấy OPENAI_API_KEY. Chức năng nói sẽ TẮT.")
-except Exception as e:
-    logger.error(f"❌ Lỗi khởi tạo Voice Client: {e}")
-
-# --- 2. HÀM CHUYỂN ĐỔI ---
-def text_to_speech_file(text, filename="output.mp3"):
+# --- 1. HÀM NÓI MIỄN PHÍ (Edge-TTS) ---
+# Giọng 'vi-VN-HoaiMyNeural' hoặc 'vi-VN-NamMinhNeural' cực kỳ tự nhiên
+async def generate_voice_free(text, voice="vi-VN-HoaiMyNeural"):
     """
-    Chuyển văn bản thành giọng nói (OpenAI TTS-1)
+    Tạo giọng nói AI chất lượng cao miễn phí (Neural Voice)
     """
-    # Nếu client chưa khởi tạo được (do thiếu key), trả về None ngay
-    if not client:
+    if not text: return None
+    try:
+        communicate = edge_tts.Communicate(text, voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        
+        logger.info(f"✅ JARVIS đã cất lời (Free Neural): {len(audio_data)} bytes")
+        return audio_data
+    except Exception as e:
+        logger.error(f"❌ Lỗi giọng nói miễn phí: {e}")
         return None
 
+# --- 2. HÀM NGHE MIỄN PHÍ (Google Speech Recognition) ---
+def transcribe_audio_free(audio_bytes):
+    """
+    Dùng thư viện SpeechRecognition (miễn phí) để dịch giọng Commander
+    """
+    import speech_recognition as sr
+    
+    r = sr.Recognizer()
+    audio_file = BytesIO(audio_bytes)
+    
+    # Chuyển đổi bytes sang định dạng mà SpeechRecognition hiểu được
+    # (Lưu ý: Cần cài thêm 'pydub' và 'ffmpeg' trên Cloud để xử lý)
     try:
-        # Gọi API OpenAI (Alloy là giọng khá mượt cho tiếng Việt)
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice="alloy",
-            input=text
-        )
-
-        # Định nghĩa đường dẫn lưu file (Trong thư mục static để Web truy cập được)
-        # Lưu ý: Trên Render, thư mục này sẽ bị reset khi deploy lại (nhưng không sao với file cache)
-        save_path = os.path.join("static", "audio", filename)
-        
-        # Đảm bảo thư mục tồn tại
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        
-        # [CẬP NHẬT] Sử dụng cách ghi file Binary chuẩn (stream_to_file sắp bị khai tử)
-        with open(save_path, "wb") as f:
-            f.write(response.content)
-
-        # Trả về đường dẫn tương đối cho Frontend phát
-        return f"/static/audio/{filename}"
-        
+        with sr.AudioFile(audio_file) as source:
+            audio = r.record(source)
+            text = r.recognize_google(audio, language="vi-VN")
+            return text
     except Exception as e:
-        logger.error(f"❌ Lỗi tạo giọng nói: {e}")
+        logger.error(f"❌ JARVIS không nghe rõ: {e}")
         return None
